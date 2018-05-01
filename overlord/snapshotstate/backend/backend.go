@@ -22,7 +22,6 @@ package backend
 import (
 	"archive/zip"
 	"context"
-	"crypto"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +31,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/anonymouse64/crypto/sha3"
 	"github.com/snapcore/snapd/client"
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/logger"
@@ -199,7 +199,7 @@ func Save(ctx context.Context, id uint64, si *snap.Info, cfg map[string]interfac
 		return nil, err
 	}
 
-	hasher := crypto.SHA3_384.New()
+	hasher := sha3.New384()
 	enc := json.NewEncoder(io.MultiWriter(metaWriter, hasher))
 	if err := enc.Encode(snapshot); err != nil {
 		return nil, err
@@ -288,7 +288,7 @@ func addDirToZip(ctx context.Context, snapshot *client.Snapshot, w *zip.Writer, 
 	}
 
 	var sz sizer
-	hasher := crypto.SHA3_384.New()
+	hasher := sha3.New384()
 
 	cmd := tarAsUser(username, tarArgs...)
 	cmd.Stdout = io.MultiWriter(archiveWriter, hasher, &sz)

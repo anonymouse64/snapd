@@ -41,6 +41,7 @@ import (
 	"time"
 
 	"github.com/juju/ratelimit"
+	"golang.org/x/crypto/sha3"
 	"gopkg.in/retry.v1"
 
 	"github.com/snapcore/snapd/arch"
@@ -1366,7 +1367,7 @@ func (s *Store) Download(ctx context.Context, name string, targetPath string, do
 		}
 	} else {
 		// we're done! check the hash though
-		h := crypto.SHA3_384.New()
+		h := sha3.New384()
 		if _, err := w.Seek(0, os.SEEK_SET); err != nil {
 			return err
 		}
@@ -1452,7 +1453,7 @@ func downloadImpl(ctx context.Context, name, sha3_384, downloadURL string, user 
 
 		httputil.MaybeLogRetryAttempt(reqOptions.URL.String(), attempt, startTime)
 
-		h := crypto.SHA3_384.New()
+		h := sha3.New384()
 
 		if resume > 0 {
 			reqOptions.ExtraHeaders["Range"] = fmt.Sprintf("bytes=%d-", resume)

@@ -22,7 +22,6 @@ package backend
 import (
 	"bytes"
 	"context"
-	"crypto"
 	"errors"
 	"fmt"
 	"hash"
@@ -33,6 +32,7 @@ import (
 	"sort"
 	"syscall"
 
+	"github.com/anonymouse64/crypto/sha3"
 	"github.com/snapcore/snapd/client"
 	"github.com/snapcore/snapd/jsonutil"
 	"github.com/snapcore/snapd/logger"
@@ -73,7 +73,7 @@ func Open(fn string) (reader *Reader, e error) {
 
 	// first try to load the metadata itself
 	var sz sizer
-	hasher := crypto.SHA3_384.New()
+	hasher := sha3.New384()
 	metaReader, metaSize, err := zipMember(f, metadataName)
 	if err != nil {
 		// no metadata file -> nothing to do :-(
@@ -149,7 +149,7 @@ func (r *Reader) checkOne(ctx context.Context, entry string, hasher hash.Hash) e
 func (r *Reader) Check(ctx context.Context, usernames []string) error {
 	sort.Strings(usernames)
 
-	hasher := crypto.SHA3_384.New()
+	hasher := sha3.New384()
 	for entry := range r.SHA3_384 {
 		if len(usernames) > 0 && isUserArchive(entry) {
 			username := entryUsername(entry)
@@ -189,7 +189,7 @@ func (r *Reader) Restore(ctx context.Context, current snap.Revision, usernames [
 	sort.Strings(usernames)
 	isRoot := sys.Geteuid() == 0
 	si := snap.MinimalPlaceInfo(r.Snap, r.Revision)
-	hasher := crypto.SHA3_384.New()
+	hasher := sha3.New384()
 	var sz sizer
 
 	var curdir string

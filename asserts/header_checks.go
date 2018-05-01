@@ -20,7 +20,7 @@
 package asserts
 
 import (
-	"crypto"
+	sha3 "github.com/anonymouse64/crypto/sha3"
 	"encoding/base64"
 	"fmt"
 	"regexp"

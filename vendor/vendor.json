@@ -7,6 +7,11 @@
 			"revision": ""
 		},
 		{
+			"checksumSHA1": "JH2tb8e+7L9wLttV0WzhBtejuDU=",
+			"path": "github.com/anonymouse64/crypto/sha3",
+			"revision": "05c73280ccef5e438368526e8d9330558b41dcd3"
+		},
+		{
 			"checksumSHA1": "zg16zjZTQ9R89+UOLmEZxHgxDtM=",
 			"path": "github.com/coreos/go-systemd/activation",
 			"revision": "39ca1b05acc7ad1220e09f133283b8859a8b71ab",

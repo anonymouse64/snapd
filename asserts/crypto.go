@@ -31,8 +31,8 @@ import (
 	"io"
 	"time"
 
+	"github.com/anonymouse64/crypto/sha3"
 	"golang.org/x/crypto/openpgp/packet"
-	"golang.org/x/crypto/sha3"
 )
 
 const (
