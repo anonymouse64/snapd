@@ -21,9 +21,11 @@ package servicestate
 
 import (
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/snapcore/snapd/client"
+	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/overlord/cmdstate"
 	"github.com/snapcore/snapd/overlord/hookstate"
 	"github.com/snapcore/snapd/overlord/snapstate"
@@ -56,10 +58,10 @@ func Control(st *state.State, appInfos []*snap.AppInfo, inst *Instruction, conte
 		}
 		ctlcmds = append(ctlcmds, "start")
 	case inst.Action == "stop":
+		ctlcmds = []string{"stop"}
 		if inst.Disable {
-			ctlcmds = []string{"disable"}
+			ctlcmds = append(ctlcmds, "disable")
 		}
-		ctlcmds = append(ctlcmds, "stop")
 	case inst.Action == "restart":
 		if inst.Reload {
 			ctlcmds = []string{"reload-or-restart"}
@@ -85,6 +87,20 @@ func Control(st *state.State, appInfos []*snap.AppInfo, inst *Instruction, conte
 			snapNames = append(snapNames, snapName)
 			lastName = snapName
 		}
+
+		// also check the timer case
+		if svc.Timer != nil {
+			fmt.Printf("app %s has timer: %+v\n", svc.Name, svc.Timer)
+			timerService := filepath.Base(svc.Timer.File())
+			svcs = append(svcs, timerService)
+		}
+
+		// also check the socket case
+		for _, socket := range svc.Sockets {
+			fmt.Printf("app %s has service: %+v\n", svc.Name, socket)
+			socketService := filepath.Base(socket.File())
+			svcs = append(svcs, socketService)
+		}
 	}
 
 	var ignoreChangeID string
@@ -101,7 +117,8 @@ func Control(st *state.State, appInfos []*snap.AppInfo, inst *Instruction, conte
 	}
 
 	for _, cmd := range ctlcmds {
-		argv := append([]string{"systemctl", cmd}, svcs...)
+		argv := append([]string{"systemctl", "--root", dirs.GlobalRootDir, cmd}, svcs...)
+		fmt.Printf("execing systemctl %+v\n", argv)
 		desc := fmt.Sprintf("%s of %v", cmd, names)
 		// Give the systemctl a maximum time of 61 for now.
 		//
