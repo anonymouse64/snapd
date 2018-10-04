@@ -387,7 +387,7 @@ func genServiceFile(appInfo *snap.AppInfo) []byte {
 	serviceTemplate := `[Unit]
 # Auto-generated, DO NOT EDIT
 Description=Service for snap application {{.App.Snap.InstanceName}}.{{.App.Name}}
-Requires={{.MountUnit}}
+Requires={{.MountUnit}}{{range .After}} {{.}}{{end}}{{range .OtherRequires}} {{.}}{{end}}
 Wants={{.PrerequisiteTarget}}
 After={{.MountUnit}} {{.PrerequisiteTarget}}{{range .After}} {{.}}{{end}}
 {{- if .Before}}
@@ -471,6 +471,7 @@ WantedBy={{.ServicesTarget}}
 		Remain             string
 		KillMode           string
 		KillSignal         string
+		OtherRequires      []string
 		Before             []string
 		After              []string
 
@@ -488,11 +489,27 @@ WantedBy={{.ServicesTarget}}
 		KillMode:           killMode,
 		KillSignal:         appInfo.StopMode.KillSignal(),
 
-		Before: genServiceNames(appInfo.Snap, appInfo.Before),
-		After:  genServiceNames(appInfo.Snap, appInfo.After),
+		Before:        genServiceNames(appInfo.Snap, appInfo.Before),
+		After:         genServiceNames(appInfo.Snap, appInfo.After),
+		OtherRequires: []string{},
 
 		// systemd runs as PID 1 so %h will not work.
 		Home: "/root",
+	}
+
+	// for all of the services that declare this service in their 'before' spec
+	// we need to add those services to this Require
+	// see LP #1796125
+	for _, otherApp := range appInfo.Snap.Apps {
+		if otherApp.IsService() {
+			// check if it declares this service as a before
+			for _, otherAppBeforeSvc := range otherApp.Before {
+				if otherAppBeforeSvc == appInfo.Name {
+					// add the other service to this service's other requires
+					wrapperData.OtherRequires = append(wrapperData.OtherRequires, otherApp.ServiceName())
+				}
+			}
+		}
 	}
 
 	if err := t.Execute(&templateOut, wrapperData); err != nil {
