@@ -1,0 +1,18 @@
+summary: Check that snap refreshes don't start disabled services
+
+execute: |
+    # shellcheck source=tests/lib/snaps.sh
+    . "$TESTSLIB"/snaps.sh
+    install_local test-snapd-disable-svc-refresh
+
+    # disable the service
+    snap stop --disable test-snapd-disable-svc-refresh.simple
+
+    # ensure the service was disabled
+    snap services | MATCH "test-snapd-disable-svc-refresh\\.simple\\s+disabled\\s+inactive"
+
+    # refresh the snap
+    install_local test-snapd-disable-svc-refresh
+
+    # ensure the service is still disabled after the refresh
+    snap services | MATCH "test-snapd-disable-svc-refresh\\.simple\\s+disabled\\s+inactive"

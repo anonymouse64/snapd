@@ -1,0 +1,6 @@
+name: test-snapd-disable-svc-refresh
+version: 1.0
+apps:
+    simple:
+        daemon: simple
+        command: bin/simple.sh
