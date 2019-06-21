@@ -26,10 +26,16 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"github.com/guillermo/go.proc-stat"
+	"sort"
 )
 
 // ExeRuntime is the runtime of an individual executable
 type ExeRuntime struct {
+	Processed bool
+	PID int
+	PPID int
+	Start float64
 	Exe string
 	// FIXME: move to time.Duration
 	TotalSec float64
@@ -40,6 +46,7 @@ type ExeRuntime struct {
 type ExecveTiming struct {
 	TotalTime   float64
 	exeRuntimes []ExeRuntime
+	indent      string
 
 	nSlowestSamples int
 }
@@ -50,10 +57,14 @@ func NewExecveTiming(nSlowestSamples int) *ExecveTiming {
 	return &ExecveTiming{nSlowestSamples: nSlowestSamples}
 }
 
-func (stt *ExecveTiming) addExeRuntime(exe string, totalSec float64) {
+func (stt *ExecveTiming) addExeRuntime(pid int, ppid int, start float64, exe string, totalSec float64) {
 	stt.exeRuntimes = append(stt.exeRuntimes, ExeRuntime{
-		Exe:      exe,
-		TotalSec: totalSec,
+		Processed: false,
+		PID:       pid,
+		PPID:      ppid,
+		Start:     start,
+		Exe:       exe,
+		TotalSec:  totalSec,
 	})
 	stt.prune()
 }
@@ -73,18 +84,60 @@ func (stt *ExecveTiming) prune() {
 	}
 }
 
+func (stt *ExecveTiming) PrintRt(w io.Writer, thisrt *ExeRuntime) {
+	stt.indent += "\t"
+	fmt.Fprintf(w, stt.indent + "%2.3f  %2.3f  %.5d  %.5d  %s\n", thisrt.Start-stt.exeRuntimes[0].Start, thisrt.TotalSec, thisrt.PPID, thisrt.PID, thisrt.Exe)
+	thisrt.Processed = true
+
+	for i, _ := range stt.exeRuntimes {
+		rt := &stt.exeRuntimes[i]
+		if rt.Processed {
+			continue
+		}
+		if rt.PID == thisrt.PID {
+			fmt.Fprintf(w, stt.indent + "%2.3f  %2.3f  %.5d  %.5d  %s\n", rt.Start-stt.exeRuntimes[0].Start, rt.TotalSec, rt.PPID, rt.PID, rt.Exe)
+			rt.Processed = true
+		}
+	}
+	
+	for i, _ := range stt.exeRuntimes {
+		rt := &stt.exeRuntimes[i]
+		if rt.Processed {
+			continue
+		}
+    	if rt.PPID == thisrt.PID {
+	    	stt.PrintRt(w, rt)
+		}
+	}
+	
+	stt.indent = stt.indent[0:len(stt.indent)-1]
+}
+
 func (stt *ExecveTiming) Display(w io.Writer) {
 	if len(stt.exeRuntimes) == 0 {
 		return
 	}
-	fmt.Fprintf(w, "Slowest %d exec calls during snap run:\n", len(stt.exeRuntimes))
-	for _, rt := range stt.exeRuntimes {
-		fmt.Fprintf(w, "  %2.3fs %s\n", rt.TotalSec, rt.Exe)
+	fmt.Fprintf(w, "%d exec calls during snap run:\n", len(stt.exeRuntimes))
+	fmt.Printf("\tSTART  ELAPSE PPID   PID    EXE\n")
+	fmt.Printf("\t-------------------------------\n")
+
+	sort.Slice(stt.exeRuntimes, func(i, j int) bool {
+		return stt.exeRuntimes[i].Start < stt.exeRuntimes[j].Start
+	  })
+
+	for i, _ := range stt.exeRuntimes {
+		rt := &stt.exeRuntimes[i]
+		if rt.Processed {
+			continue
+		}
+		stt.PrintRt(w, rt)
 	}
+
 	fmt.Fprintf(w, "Total time: %2.3fs\n", stt.TotalTime)
 }
 
 type exeStart struct {
+	ppid  int
 	start float64
 	exe   string
 }
@@ -100,15 +153,15 @@ func newPidTracker() *pidTracker {
 
 }
 
-func (pt *pidTracker) Get(pid string) (startTime float64, exe string) {
+func (pt *pidTracker) Get(pid string) (ppid int, startTime float64, exe string) {
 	if exeStart, ok := pt.pidToExeStart[pid]; ok {
-		return exeStart.start, exeStart.exe
+		return exeStart.ppid, exeStart.start, exeStart.exe
 	}
-	return 0, ""
+	return 0, 0, ""
 }
 
-func (pt *pidTracker) Add(pid string, startTime float64, exe string) {
-	pt.pidToExeStart[pid] = exeStart{start: startTime, exe: exe}
+func (pt *pidTracker) Add(pid string, ppid int, startTime float64, exe string) {
+	pt.pidToExeStart[pid] = exeStart{ppid: ppid, start: startTime, exe: exe}
 }
 
 func (pt *pidTracker) Del(pid string) {
@@ -141,11 +194,19 @@ func handleExecMatch(trace *ExecveTiming, pt *pidTracker, match []string) error 
 		return err
 	}
 	exe := match[3]
-	// deal with subsequent execve()
-	if start, exe := pt.Get(pid); exe != "" {
-		trace.addExeRuntime(exe, execStart-start)
+
+	ipid, err := strconv.Atoi(pid)
+	stats := procstat.Stat{Pid: ipid}
+	err = stats.Update()
+	if err != nil {
+		return err
 	}
-	pt.Add(pid, execStart, exe)
+
+	// deal with subsequent execve()
+	if _, start, exe := pt.Get(pid); exe != "" {
+		trace.addExeRuntime(ipid, stats.PPid, start, exe, execStart-start)
+	}
+	pt.Add(pid, stats.PPid, execStart, exe)
 	return nil
 }
 
@@ -158,8 +219,11 @@ func handleSignalMatch(trace *ExecveTiming, pt *pidTracker, match []string) erro
 		return err
 	}
 	sigPid := match[3]
-	if start, exe := pt.Get(sigPid); exe != "" {
-		trace.addExeRuntime(exe, sigTime-start)
+	
+	ipid, err := strconv.Atoi(sigPid)
+
+	if ppid, start, exe := pt.Get(sigPid); exe != "" {
+		trace.addExeRuntime(ipid, ppid, start, exe, sigTime-start)
 		pt.Del(sigPid)
 	}
 	return nil
