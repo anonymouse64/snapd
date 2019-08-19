@@ -306,7 +306,7 @@ func (m *SnapManager) installPrereqs(t *state.Task, base string, prereq []string
 	// can be installed together we add the tasks to the change.
 	var tss []*state.TaskSet
 	for _, prereqName := range prereq {
-		var onInFlightErr error = nil
+		var onInFlightErr error
 		var err error
 		var ts *state.TaskSet
 		timings.Run(tm, "install-prereq", fmt.Sprintf("install %q", prereqName), func(timings.Measurer) {
