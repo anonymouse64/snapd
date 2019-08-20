@@ -845,6 +845,10 @@ func (f *fakeSnappyBackend) StopServices(svcs []*snap.AppInfo, reason snap.Servi
 	return nil
 }
 
+func (f *fakeSnappyBackend) RestoreDisabledServices(info *snap.Info, lastActiveDisabledSvcNames []string, meter progress.Meter) ([]string, error) {
+	return nil, nil
+}
+
 func (f *fakeSnappyBackend) UndoSetupSnap(s snap.PlaceInfo, typ snap.Type, p progress.Meter) error {
 	p.Notify("setup-snap")
 	f.appendOp(&fakeOp{
@@ -871,6 +875,10 @@ func (f *fakeSnappyBackend) UndoCopySnapData(newInfo *snap.Info, oldInfo *snap.I
 		old:  old,
 	})
 	return nil
+}
+
+func (f *fakeSnappyBackend) CurrentSnapServiceStates(info *snap.Info, meter progress.Meter) (map[string]bool, error) {
+	return nil, nil
 }
 
 func (f *fakeSnappyBackend) UnlinkSnap(info *snap.Info, meter progress.Meter) error {
