@@ -3481,6 +3481,101 @@ func (s *snapmgrTestSuite) TestInstallWithRevisionRunThrough(c *C) {
 	c.Assert(snapst.Required, Equals, false)
 }
 
+func (s *snapmgrTestSuite) TestDisableSnapDisabledServicesSaved(c *C) {
+	s.state.Lock()
+	defer s.state.Unlock()
+
+	prevCurrentlyDisabled := s.fakeBackend.servicesCurrentlyDisabled
+	s.fakeBackend.servicesCurrentlyDisabled = []string{"svc1", "svc2"}
+
+	// reset the services to what they were before after the test is done
+	defer func() {
+		s.fakeBackend.servicesCurrentlyDisabled = prevCurrentlyDisabled
+	}()
+
+	snapstate.Set(s.state, "services-snap", &snapstate.SnapState{
+		Sequence: []*snap.SideInfo{
+			{RealName: "services-snap", Revision: snap.R(11)},
+		},
+		Current: snap.R(11),
+		Active:  true,
+	})
+
+	disableChg := s.state.NewChange("disable", "disable a snap")
+	ts, err := snapstate.Disable(s.state, "services-snap")
+	c.Assert(err, IsNil)
+	disableChg.AddAll(ts)
+
+	s.state.Unlock()
+	defer s.se.Stop()
+	s.settle(c)
+	s.state.Lock()
+
+	c.Assert(disableChg.Err(), IsNil)
+	c.Assert(disableChg.IsReady(), Equals, true)
+
+	// get the snap state
+	allsnaps, err := snapstate.All(s.state)
+	c.Assert(err, IsNil)
+	snapst, ok := allsnaps["services-snap"]
+	c.Assert(ok, Equals, true)
+
+	// make sure that the disabled services in this snap's state is what we
+	// provided
+	sort.Strings(snapst.LastActiveDisabledServices)
+	c.Assert(snapst.LastActiveDisabledServices, DeepEquals, []string{"svc1", "svc2"})
+}
+
+// func (s *snapmgrTestSuite) TestDisabledServicesSaved(c *C) {
+// 	s.state.Lock()
+// 	defer s.state.Unlock()
+
+// 	prevCurrentlyDisabled := s.fakeBackend.servicesCurrentlyDisabled
+
+// 	// reset the services to what they were before after the test is done
+// 	defer func() {
+// 		s.fakeBackend.servicesCurrentlyDisabled = prevCurrentlyDisabled
+// 	}()
+
+// 	//
+// 	s.fakeBackend.servicesCurrentlyDisabled = []string{"svc1", "svc2"}
+
+// 	// do an install of a snap with services
+// 	installChg := s.state.NewChange("install", "install a snap")
+// 	opts := &snapstate.RevisionOptions{Channel: "some-channel"}
+// 	installTs, err := snapstate.Install(context.Background(), s.state, "services-snap", opts, s.user.ID, snapstate.Flags{})
+// 	c.Assert(err, IsNil)
+// 	installChg.AddAll(installTs)
+
+// 	// do a disable of a snap with services
+// 	disableChg := s.state.NewChange("disable", "disable a snap")
+// 	disableTs, err := snapstate.Disable(s.state, "services-snap")
+// 	c.Assert(err, IsNil)
+// 	disableChg.AddAll(disableTs)
+
+// 	s.state.Unlock()
+// 	defer s.se.Stop()
+// 	s.settle(c)
+// 	s.state.Lock()
+
+// 	// ensure all our tasks ran
+// 	c.Assert(installChg.Err(), IsNil)
+// 	c.Assert(installChg.IsReady(), Equals, true)
+// 	c.Check(snapstate.Installing(s.state), Equals, false)
+// 	c.Assert(disableChg.Err(), IsNil)
+// 	c.Assert(disableChg.IsReady(), Equals, true)
+
+// 	// get the snap state
+// 	allsnaps, err := snapstate.All(s.state)
+// 	c.Assert(err, IsNil)
+// 	snapst, ok := allsnaps["services-snap"]
+// 	c.Assert(ok, Equals, true)
+
+// 	// make sure that the disabled services in this snap's state is what we
+// 	// provided
+// 	c.Assert(snapst.LastActiveDisabledServices, DeepEquals, []string{"svc1", "svc2"})
+// }
+
 func (s *snapmgrTestSuite) TestInstallStartOrder(c *C) {
 	s.state.Lock()
 	defer s.state.Unlock()
@@ -6725,6 +6820,7 @@ version: 1.0`)
 		},
 	}
 
+	// start with an easier-to-read error if this fails:
 	c.Assert(s.fakeBackend.ops.Ops(), DeepEquals, expected.Ops())
 	c.Check(s.fakeBackend.ops, DeepEquals, expected)
 
@@ -6942,6 +7038,7 @@ epoch: 1*
 			revno: snap.R("x1"),
 		},
 	}
+	// start with an easier-to-read error if this fails:
 	c.Assert(s.fakeBackend.ops.Ops(), DeepEquals, expected.Ops())
 	c.Check(s.fakeBackend.ops, DeepEquals, expected)
 
@@ -8804,6 +8901,9 @@ func (s *snapmgrTestSuite) TestEnableRunThrough(c *C) {
 			path: filepath.Join(dirs.SnapMountDir, "some-snap/7"),
 		},
 		{
+			op: "restore-disabled-services",
+		},
+		{
 			op:    "auto-connect:Doing",
 			name:  "some-snap",
 			revno: snap.R(7),
@@ -8871,6 +8971,9 @@ func (s *snapmgrTestSuite) TestDisableRunThrough(c *C) {
 		{
 			op:   "remove-snap-aliases",
 			name: "some-snap",
+		},
+		{
+			op: "current-snap-service-states",
 		},
 		{
 			op:   "unlink-snap",
@@ -8966,6 +9069,9 @@ func (s *snapmgrTestSuite) TestParallelInstanceEnableRunThrough(c *C) {
 		{
 			op:   "link-snap",
 			path: filepath.Join(dirs.SnapMountDir, "some-snap_instance/7"),
+		},
+		{
+			op: "restore-disabled-services",
 		},
 		{
 			op:    "auto-connect:Doing",
@@ -13623,6 +13729,8 @@ func (s *snapmgrTestSuite) TestInstallDefaultProviderRunThrough(c *C) {
 		op:   "link-snap",
 		path: filepath.Join(dirs.SnapMountDir, "snap-content-plug/42"),
 	}, {
+		op: "restore-disabled-services",
+	}, {
 		op:    "auto-connect:Doing",
 		name:  "snap-content-plug",
 		revno: snap.R(42),
@@ -13638,6 +13746,9 @@ func (s *snapmgrTestSuite) TestInstallDefaultProviderRunThrough(c *C) {
 		revno: snap.R(11),
 	},
 	}
+
+	// start with an easier-to-read error if this fails:
+	c.Assert(s.fakeBackend.ops.Ops(), DeepEquals, expected.Ops())
 	// snap and default provider are installed in parallel so we can't
 	// do a simple c.Check(ops, DeepEquals, fakeOps{...})
 	c.Check(len(s.fakeBackend.ops), Equals, len(expected))
