@@ -183,6 +183,11 @@ var execveatRE = regexp.MustCompile(`([0-9]+)\ +([0-9.]+) execveat\(.*\["([^"]+)
 // 17559 1542815330.242750 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=17643, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
 var sigChldTermRE = regexp.MustCompile(`[0-9]+\ +([0-9.]+).*SIG(CHLD|TERM)\ {.*si_pid=([0-9]+),`)
 
+// lines look like
+// PID   TIME                            SIGNAL
+// 20882 1573257274.988650 +++ killed by SIGKILL +++
+var sigkillRE = regexp.MustCompile(`([0-9]+)\ +([0-9.]+) \+\+\+ killed by SIGKILL \+\+\+`)
+
 func handleExecMatch(trace *ExecveTiming, pt *pidTracker, match []string) error {
 	if len(match) == 0 {
 		return nil
@@ -229,6 +234,25 @@ func handleSignalMatch(trace *ExecveTiming, pt *pidTracker, match []string) erro
 	return nil
 }
 
+func handleSigkillMatch(trace *ExecveTiming, pt *pidTracker, match []string) error {
+	if len(match) == 0 {
+		return nil
+	}
+	pid := match[1]
+	sigTime, err := strconv.ParseFloat(match[2], 64)
+	if err != nil {
+		return err
+	}
+
+	if start, exe := pt.Get(pid); exe != "" {
+		trace.addExeRuntime(start, exe, sigTime-start)
+		pt.Del(pid)
+	}
+	return nil
+}
+
+// TraceExecveTimings will read an strace log and produce a timing report of the
+// n slowest exec's
 func TraceExecveTimings(straceLog string, nSlowest int) (*ExecveTiming, error) {
 	slog, err := os.Open(straceLog)
 	if err != nil {
@@ -273,9 +297,17 @@ func TraceExecveTimings(straceLog string, nSlowest int) (*ExecveTiming, error) {
 		// handleSignalMatch looks for SIG{CHLD,TERM} signals and
 		// maps them via the pidTracker to the execve{,at}() calls
 		// of the terminating PID to calculate the total time of
-		// a execve{,at}() call.
+		// an execve{,at}() call.
 		match = sigChldTermRE.FindStringSubmatch(line)
 		if err := handleSignalMatch(trace, pidTracker, match); err != nil {
+			return nil, err
+		}
+
+		// handleSignalMatch looks for SIGKILL signals for processes and uses
+		// the time that SIGKILL happens to calculate the total time of an
+		// execve{,at}() call.
+		match = sigkillRE.FindStringSubmatch(line)
+		if err := handleSigkillMatch(trace, pidTracker, match); err != nil {
 			return nil, err
 		}
 	}
