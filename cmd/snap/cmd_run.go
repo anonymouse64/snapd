@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"os"
 	"os/exec"
 	"os/user"
@@ -72,9 +73,13 @@ type cmdRun struct {
 	// This options is both a selector (use or don't use strace) and it
 	// can also carry extra options for strace. This is why there is
 	// "default" and "optional-value" to distinguish this.
-	Strace    string `long:"strace" optional:"true" optional-value:"with-strace" default:"no-strace" default-mask:"-"`
-	Gdb       bool   `long:"gdb"`
-	TraceExec bool   `long:"trace-exec"`
+	Strace                string `long:"strace" optional:"true" optional-value:"with-strace" default:"no-strace" default-mask:"-"`
+	Gdb                   bool   `long:"gdb"`
+	TraceExec             bool   `long:"trace-exec"`
+	PerfGraphicsTraceExec bool   `long:"perf-graphics-trace-exec"`
+	PrepareScript         string `long:"prepare-script"`
+	CleanupScript         string `long:"cleanup-script"`
+	WindowName            string `long:"window-name"`
 
 	// not a real option, used to check if cmdRun is initialized by
 	// the parser
@@ -107,7 +112,14 @@ and environment.
 			// TRANSLATORS: This should not start with a lowercase letter.
 			"timer": i18n.G("Run as a timer service with given schedule"),
 			// TRANSLATORS: This should not start with a lowercase letter.
-			"trace-exec": i18n.G("Display exec calls timing data"),
+			"trace-exec":               i18n.G("Display exec calls timing data"),
+			"perf-graphics-trace-exec": i18n.G("Do the things"),
+
+			"prepare-script": i18n.G("Do the things"),
+
+			"cleanup-script": i18n.G("Do the things"),
+			"window-name":    i18n.G("Do the things"),
+
 			"parser-ran": "",
 		}, nil)
 }
@@ -774,11 +786,240 @@ func (x *cmdRun) runCmdWithTraceExec(origCmd, env []string) error {
 	// wait for strace reader
 	<-doneCh
 	if straceErr == nil {
-		slg.Display(Stderr)
+		// make a new tabwriter to stderr
+		w := tabWriterGeneric(Stderr)
+		slg.Display(w)
 	} else {
 		logger.Noticef("cannot extract runtime data: %v", straceErr)
 	}
 	return err
+}
+
+type xdotool struct{}
+
+type xtooler interface {
+	waitForWindows(prog string) ([]string, error)
+	closeWindowID(wid string) error
+	pidForWindowID(wid string) (int, error)
+}
+
+func makeXDoTool() xtooler {
+	return &xdotool{}
+}
+
+func (x *xdotool) waitForWindows(name string) ([]string, error) {
+	windowids := []string{}
+	var err error
+	out := []byte{}
+	for i := 0; i < 10; i++ {
+		out, err = exec.Command("xdotool", "search", "--sync", "--onlyvisible", "--class", name).CombinedOutput()
+		if err != nil {
+			continue
+		}
+		windowids = strings.Split(strings.TrimSpace(string(out)), "\n")
+		return windowids, nil
+	}
+	log.Println(string(out))
+	return nil, err
+}
+
+func (x *xdotool) closeWindowID(wid string) error {
+	out, err := exec.Command("xdotool", "windowkill", wid).CombinedOutput()
+	if err != nil {
+		log.Println(string(out))
+		return err
+	}
+	return nil
+}
+
+func (x *xdotool) pidForWindowID(wid string) (int, error) {
+	out, err := exec.Command("xdotool", "getwindowpid", wid).CombinedOutput()
+	if err != nil {
+		log.Println(string(out))
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(string(out)))
+}
+
+func freeCaches() error {
+	// it would be nice to do this from pure Go, but then we have to become root
+	// which is a hassle
+	// so just use sudo for now
+	for _, i := range []int{1, 2, 3} {
+		cmd := exec.Command("sudo", "sysctl", "-q", "vm.drop_caches="+string(i))
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Println(string(out))
+			return err
+		}
+
+		// equivalent go code that must be run as root
+		// err := ioutil.WriteFile(path.Join(sysctlBase, "vm/drop_caches"), []byte(strconv.Itoa(i)), 0640)
+	}
+	return nil
+}
+
+func wmctrlCloseWindow(name string) error {
+	out, err := exec.Command("wmctrl", "-c", name).CombinedOutput()
+	if err != nil {
+		log.Println(string(out))
+		return err
+	}
+	return nil
+}
+
+func (x *cmdRun) runPerfGraphicsCmdWithTraceExec(name string, origCmd, env []string) error {
+	// run the prepare script if it's available
+	if x.PrepareScript != "" {
+		out, err := exec.Command(x.PrepareScript).CombinedOutput()
+		if err != nil {
+			log.Println(string(out))
+			log.Printf("failed to run prepare script (%s): %v", x.PrepareScript, err)
+		}
+	}
+
+	xtool := makeXDoTool()
+	// setup private tmp dir with strace fifo
+	straceTmp, err := ioutil.TempDir("", "exec-trace")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(straceTmp)
+	straceLog := filepath.Join(straceTmp, "strace.fifo")
+	if err := syscall.Mkfifo(straceLog, 0640); err != nil {
+		return err
+	}
+	// ensure we have one writer on the fifo so that if strace fails
+	// nothing blocks
+	fw, err := os.OpenFile(straceLog, os.O_RDWR, 0640)
+	if err != nil {
+		return err
+	}
+	defer fw.Close()
+
+	// read strace data from fifo async
+	var slg *strace.ExecveTiming
+	var straceErr error
+	doneCh := make(chan bool, 1)
+	go func() {
+		// FIXME: make this configurable?
+		nSlowest := 1000
+		slg, straceErr = strace.TraceExecveTimings(straceLog, nSlowest)
+		close(doneCh)
+	}()
+
+	cmd, err := strace.TraceExecCommand(straceLog, origCmd...)
+	if err != nil {
+		return err
+	}
+	cmd.Env = env
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	// before running the final command, free the caches to get most accurate
+	// timing
+	fmt.Println("freeing the caches")
+	err = freeCaches()
+	if err != nil {
+		return err
+	}
+
+	start := time.Now()
+
+	// start the command running
+	err = cmd.Start()
+
+	// now wait until the window appears
+	// err = waitForWindowStateChangeWmctrl(x.WindowName, true)
+	tryXToolClose := true
+	tryWmctrl := false
+	wids, err := xtool.waitForWindows(name)
+	if err != nil {
+		log.Println("error waiting for window appearance:", err)
+		// if we don't get the wid properly then we can't try closing
+		tryXToolClose = false
+	}
+
+	// save the startup time
+	startup := time.Since(start)
+
+	// now get the pids before closing the window so we can gracefully try
+	// closing the windows before forcibly killing them later
+	if tryXToolClose {
+		pids := make([]int, len(wids))
+		for i, wid := range wids {
+			pid, err := xtool.pidForWindowID(wid)
+			if err != nil {
+				log.Println("error getting pid for wid", wid, ":", err)
+				tryWmctrl = true
+				break
+			}
+			pids[i] = pid
+		}
+
+		// close the windows
+		for _, wid := range wids {
+			err = xtool.closeWindowID(wid)
+			if err != nil {
+				log.Println("error closing window", err)
+				tryWmctrl = true
+			}
+		}
+
+		// kill the app pids in case x fails to close the window
+		for _, pid := range pids {
+			// FindProcess always succeeds on unix
+			proc, _ := os.FindProcess(pid)
+			if err := proc.Signal(os.Kill); err != nil {
+				log.Printf("failed to kill window process %d: %v\n", pid, err)
+				tryWmctrl = true
+			}
+		}
+	} else {
+		log.Println("xdotool failed to get window id so try using wmctrl")
+	}
+
+	if tryWmctrl {
+		err = wmctrlCloseWindow(x.WindowName)
+		if err != nil {
+			log.Println("failed trying to close window with wmctrl:", err)
+		}
+	}
+
+	// finally kill the process we started as sudo to _really_ kill it
+	stracePid := strconv.Itoa(cmd.Process.Pid)
+	out, err := exec.Command("sudo", "kill", "-9", stracePid).CombinedOutput()
+	if err != nil {
+		log.Println(out)
+		log.Println("error killing initial strace process:", err)
+	}
+
+	// ensure we close the fifo here so that the strace.TraceExecCommand()
+	// helper gets a EOF from the fifo (i.e. all writers must be closed
+	// for this)
+	fw.Close()
+
+	// wait for strace reader
+	<-doneCh
+	if straceErr == nil {
+		// make a new tabwriter to stderr
+		w := tabWriterGeneric(os.Stderr)
+		slg.Display(w)
+	} else {
+		logger.Noticef("cannot extract runtime data: %v", straceErr)
+	}
+
+	fmt.Println("Total startup time:", startup)
+
+	if x.CleanupScript != "" {
+		out, err = exec.Command(x.CleanupScript).CombinedOutput()
+		if err != nil {
+			log.Println(string(out))
+			log.Printf("failed to run cleanup script (%s): %v", x.PrepareScript, err)
+		}
+	}
+	return nil
 }
 
 func (x *cmdRun) runCmdUnderStrace(origCmd, env []string) error {
@@ -946,6 +1187,8 @@ func (x *cmdRun) runSnapConfine(info *snap.Info, securityTag, snapApp, hook stri
 
 	if x.TraceExec {
 		return x.runCmdWithTraceExec(cmd, env)
+	} else if x.PerfGraphicsTraceExec {
+		return x.runPerfGraphicsCmdWithTraceExec(snapApp, cmd, env)
 	} else if x.Gdb {
 		return x.runCmdUnderGdb(cmd, env)
 	} else if x.useStrace() {

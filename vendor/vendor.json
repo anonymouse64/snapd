@@ -31,6 +31,12 @@
 			"revisionTime": "2019-07-01T20:26:33Z"
 		},
 		{
+			"checksumSHA1": "RrSmG51qc/8VDsiJKhEWXbO+oMY=",
+			"path": "github.com/guillermo/go.proc-stat",
+			"revision": "34c2813d2e7fe3db445f12e63f82edf78bba6636",
+			"revisionTime": "2013-11-23T17:29:20Z"
+		},
+		{
 			"checksumSHA1": "GcYF2BhpiQkshVVXxHPS/Oq491c=",
 			"path": "github.com/jessevdk/go-flags",
 			"revision": "7309ec74f752d05ce2c62b8fd5755c4a2e3913cb",
