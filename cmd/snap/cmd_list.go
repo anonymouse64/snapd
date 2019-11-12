@@ -22,6 +22,8 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -153,5 +155,9 @@ func (x *cmdList) Execute(args []string) error {
 }
 
 func tabWriter() *tabwriter.Writer {
-	return tabwriter.NewWriter(Stdout, 5, 3, 2, ' ', 0)
+	return tabWriterGeneric(os.Stdout)
+}
+
+func tabWriterGeneric(w io.Writer) *tabwriter.Writer {
+	return tabwriter.NewWriter(w, 5, 3, 2, ' ', 0)
 }
