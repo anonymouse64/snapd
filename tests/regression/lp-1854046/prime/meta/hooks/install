@@ -1,0 +1,2 @@
+#!/bin/sh -ex
+sha1sum /var/lib/snapd/lib/gl/libGL.so.1
