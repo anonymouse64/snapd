@@ -20,6 +20,7 @@
 package snap_test
 
 import (
+	"fmt"
 	"regexp"
 	"testing"
 	"time"
@@ -1181,6 +1182,71 @@ apps:
 		Name:  "test-app",
 		Plugs: map[string]*snap.PlugInfo{},
 	})
+}
+
+func (s *YamlSuite) TestUnmarshalGlobalPlugBindsToHooksWithExplicitAppPlug(c *C) {
+	// NOTE: yaml content cannot use tabs, indent the section with spaces.
+	fmt.Println("loading info yaml")
+	info, err := snap.InfoFromSnapYaml([]byte(`
+name: snap
+plugs:
+    test-plug:
+hooks:
+    test-hook:
+        command-chain: [ bin/stuff.sh ]
+apps:
+    test-app:
+        plugs:
+          - test-plug
+`))
+
+	fmt.Println("loaded info yaml")
+	c.Assert(err, IsNil)
+	c.Check(info.InstanceName(), Equals, "snap")
+	c.Check(info.Plugs, HasLen, 1)
+	c.Check(info.Slots, HasLen, 0)
+	c.Check(info.Apps, HasLen, 1)
+	c.Check(info.Hooks, HasLen, 1)
+
+	plug := info.Plugs["test-plug"]
+	hook := info.Hooks["test-hook"]
+	app := info.Apps["test-app"]
+
+	fmt.Printf("hook: %+v\n", hook)
+	fmt.Printf("app: %+v\n", app)
+	fmt.Printf("plug: %+v\n", plug)
+
+	fmt.Println("before asserts")
+	// c.Assert(plug, DeepEquals, &snap.PlugInfo{
+	// 	Snap:      info,
+	// 	Name:      "test-plug",
+	// 	Interface: "test-plug",
+	// 	Apps:      map[string]*snap.AppInfo{app.Name: app},
+	// 	Hooks:     map[string]*snap.HookInfo{hook.Name: hook},
+	// })
+	c.Assert(plug.Snap, Equals, info)
+	c.Assert(plug.Name, Equals, "test-plug")
+	c.Assert(plug.Interface, Equals, "test-plug")
+	// c.Assert(plug.Apps, Equals, map[string]*snap.AppInfo{app.Name: app})
+	// c.Assert(plug.Hooks, HasLen, 1)
+	c.Assert(plug.Hooks[hook.Name], Equals, hook)
+	// c.Assert(plug.Apps, HasLen, 1)
+	c.Assert(plug.Apps[app.Name], Equals, app)
+	fmt.Println("after plug assert")
+	c.Assert(hook, DeepEquals, &snap.HookInfo{
+		Snap:  info,
+		Name:  "test-hook",
+		Plugs: map[string]*snap.PlugInfo{plug.Name: plug},
+
+		Explicit: true,
+	})
+	fmt.Println("after hook assert")
+	c.Assert(app, DeepEquals, &snap.AppInfo{
+		Snap:  info,
+		Name:  "test-app",
+		Plugs: map[string]*snap.PlugInfo{plug.Name: plug},
+	})
+	fmt.Println("after app assert")
 }
 
 func (s *YamlSuite) TestUnmarshalComplexExample(c *C) {

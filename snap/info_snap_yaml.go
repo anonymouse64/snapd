@@ -134,29 +134,103 @@ func InfoFromSnapYaml(yamlData []byte) (*Info, error) {
 // scopedTracker helps keeping track of which slots/plugs are scoped
 // to apps and hooks.
 type scopedTracker struct {
-	plugs map[*PlugInfo]bool
-	slots map[*SlotInfo]bool
+	appplugs    map[*PlugInfo]bool
+	appslots    map[*SlotInfo]bool
+	hookplugs   map[*PlugInfo]bool
+	hookslots   map[*SlotInfo]bool
+	globalplugs map[*PlugInfo]bool
+	globalslots map[*SlotInfo]bool
 }
 
-func (strk *scopedTracker) init(sizeGuess int) {
-	strk.plugs = make(map[*PlugInfo]bool, sizeGuess)
-	strk.slots = make(map[*SlotInfo]bool, sizeGuess)
+type scopeType int
+
+const (
+	globalScope scopeType = iota
+	appScope
+	hookScope
+)
+
+func (strk *scopedTracker) init(appSizeGuess, hookSizeGuess int) {
+	strk.appplugs = make(map[*PlugInfo]bool, appSizeGuess)
+	strk.appslots = make(map[*SlotInfo]bool, appSizeGuess)
+	strk.hookplugs = make(map[*PlugInfo]bool, hookSizeGuess)
+	strk.hookslots = make(map[*SlotInfo]bool, hookSizeGuess)
+	strk.globalplugs = make(map[*PlugInfo]bool, appSizeGuess+hookSizeGuess)
+	strk.globalslots = make(map[*SlotInfo]bool, appSizeGuess+hookSizeGuess)
 }
 
-func (strk *scopedTracker) markPlug(plug *PlugInfo) {
-	strk.plugs[plug] = true
+func (strk *scopedTracker) markPlug(plug *PlugInfo, t scopeType) {
+	switch t {
+	case appScope:
+		strk.appplugs[plug] = true
+	case hookScope:
+		strk.hookplugs[plug] = true
+	case globalScope:
+		strk.globalplugs[plug] = true
+	}
 }
 
-func (strk *scopedTracker) markSlot(slot *SlotInfo) {
-	strk.slots[slot] = true
+func (strk *scopedTracker) markSlot(slot *SlotInfo, t scopeType) {
+	switch t {
+	case appScope:
+		strk.appslots[slot] = true
+	case hookScope:
+		strk.hookslots[slot] = true
+	case globalScope:
+		strk.globalslots[slot] = true
+	}
 }
 
-func (strk *scopedTracker) plug(plug *PlugInfo) bool {
-	return strk.plugs[plug]
+func (strk *scopedTracker) plug(plug *PlugInfo, t scopeType) bool {
+	switch t {
+	case appScope:
+		return strk.appplugs[plug]
+	case hookScope:
+		return strk.hookplugs[plug]
+	case globalScope:
+		return strk.globalplugs[plug]
+	}
+	// TODO: should we panic here instead?
+	return false
 }
 
-func (strk *scopedTracker) slot(slot *SlotInfo) bool {
-	return strk.slots[slot]
+func (strk *scopedTracker) pluggedScope(plug *PlugInfo) (bool, scopeType) {
+	switch {
+	case strk.appplugs[plug]:
+		return true, appScope
+	case strk.hookplugs[plug]:
+		return true, hookScope
+	case strk.globalplugs[plug]:
+		return true, globalScope
+	default:
+		return false, -1
+	}
+}
+
+func (strk *scopedTracker) slottedScope(slot *SlotInfo) (bool, scopeType) {
+	switch {
+	case strk.appslots[slot]:
+		return true, appScope
+	case strk.hookslots[slot]:
+		return true, hookScope
+	case strk.globalslots[slot]:
+		return true, globalScope
+	default:
+		return false, -1
+	}
+}
+
+func (strk *scopedTracker) slot(slot *SlotInfo, t scopeType) bool {
+	switch t {
+	case appScope:
+		return strk.appslots[slot]
+	case hookScope:
+		return strk.hookslots[slot]
+	case globalScope:
+		return strk.globalslots[slot]
+	}
+	// TODO: should we panic here instead?
+	return false
 }
 
 func infoFromSnapYaml(yamlData []byte, strk *scopedTracker) (*Info, error) {
@@ -170,15 +244,15 @@ func infoFromSnapYaml(yamlData []byte, strk *scopedTracker) (*Info, error) {
 
 	snap := infoSkeletonFromSnapYaml(y)
 
-	// Collect top-level definitions of plugs and slots
-	if err := setPlugsFromSnapYaml(y, snap); err != nil {
-		return nil, err
-	}
-	if err := setSlotsFromSnapYaml(y, snap); err != nil {
-		return nil, err
-	}
+	strk.init(len(y.Apps), len(y.Hooks))
 
-	strk.init(len(y.Apps) + len(y.Hooks))
+	// Collect top-level definitions of plugs and slots
+	if err := setPlugsFromSnapYaml(y, snap, strk); err != nil {
+		return nil, err
+	}
+	if err := setSlotsFromSnapYaml(y, snap, strk); err != nil {
+		return nil, err
+	}
 
 	// Collect all apps, their aliases and hooks
 	if err := setAppsFromSnapYaml(y, snap, strk); err != nil {
@@ -290,7 +364,7 @@ func infoSkeletonFromSnapYaml(y snapYaml) *Info {
 	return snap
 }
 
-func setPlugsFromSnapYaml(y snapYaml, snap *Info) error {
+func setPlugsFromSnapYaml(y snapYaml, snap *Info, strk *scopedTracker) error {
 	for name, data := range y.Plugs {
 		iface, label, attrs, err := convertToSlotOrPlugData("plug", name, data)
 		if err != nil {
@@ -303,6 +377,7 @@ func setPlugsFromSnapYaml(y snapYaml, snap *Info) error {
 			Attrs:     attrs,
 			Label:     label,
 		}
+		strk.markPlug(snap.Plugs[name], globalScope)
 		if len(y.Apps) > 0 {
 			snap.Plugs[name].Apps = make(map[string]*AppInfo)
 		}
@@ -314,7 +389,7 @@ func setPlugsFromSnapYaml(y snapYaml, snap *Info) error {
 	return nil
 }
 
-func setSlotsFromSnapYaml(y snapYaml, snap *Info) error {
+func setSlotsFromSnapYaml(y snapYaml, snap *Info, strk *scopedTracker) error {
 	for name, data := range y.Slots {
 		iface, label, attrs, err := convertToSlotOrPlugData("slot", name, data)
 		if err != nil {
@@ -327,6 +402,8 @@ func setSlotsFromSnapYaml(y snapYaml, snap *Info) error {
 			Attrs:     attrs,
 			Label:     label,
 		}
+		strk.markSlot(snap.Slots[name], globalScope)
+
 		if len(y.Apps) > 0 {
 			snap.Slots[name].Apps = make(map[string]*AppInfo)
 		}
@@ -397,7 +474,7 @@ func setAppsFromSnapYaml(y snapYaml, snap *Info, strk *scopedTracker) error {
 				snap.Plugs[plugName] = plug
 			}
 			// Mark the plug as scoped.
-			strk.markPlug(plug)
+			strk.markPlug(plug, appScope)
 			app.Plugs[plugName] = plug
 			plug.Apps[appName] = app
 		}
@@ -413,7 +490,7 @@ func setAppsFromSnapYaml(y snapYaml, snap *Info, strk *scopedTracker) error {
 				snap.Slots[slotName] = slot
 			}
 			// Mark the slot as scoped.
-			strk.markSlot(slot)
+			strk.markSlot(slot, appScope)
 			app.Slots[slotName] = slot
 			slot.Apps[appName] = app
 		}
@@ -475,7 +552,7 @@ func setHooksFromSnapYaml(y snapYaml, snap *Info, strk *scopedTracker) {
 				snap.Plugs[plugName] = plug
 			}
 			// Mark the plug as scoped.
-			strk.markPlug(plug)
+			strk.markPlug(plug, hookScope)
 			if plug.Hooks == nil {
 				plug.Hooks = make(map[string]*HookInfo)
 			}
@@ -495,7 +572,7 @@ func setHooksFromSnapYaml(y snapYaml, snap *Info, strk *scopedTracker) {
 				snap.Slots[slotName] = slot
 			}
 			// Mark the slot as scoped.
-			strk.markSlot(slot)
+			strk.markSlot(slot, hookScope)
 			if slot.Hooks == nil {
 				slot.Hooks = make(map[string]*HookInfo)
 			}
@@ -529,33 +606,47 @@ func setSystemUsernamesFromSnapYaml(y snapYaml, snap *Info) error {
 
 func bindUnscopedPlugs(snap *Info, strk *scopedTracker) {
 	for plugName, plug := range snap.Plugs {
-		if strk.plug(plug) {
+		plugged, scope := strk.pluggedScope(plug)
+		if !plugged || scope != globalScope {
 			continue
 		}
-		for appName, app := range snap.Apps {
-			app.Plugs[plugName] = plug
-			plug.Apps[appName] = app
+
+		if !strk.plug(plug, appScope) {
+			for appName, app := range snap.Apps {
+				app.Plugs[plugName] = plug
+				plug.Apps[appName] = app
+			}
 		}
 
-		for hookName, hook := range snap.Hooks {
-			hook.Plugs[plugName] = plug
-			plug.Hooks[hookName] = hook
+		if !strk.plug(plug, hookScope) {
+			for hookName, hook := range snap.Hooks {
+				hook.Plugs[plugName] = plug
+				plug.Hooks[hookName] = hook
+			}
 		}
 	}
 }
 
 func bindUnscopedSlots(snap *Info, strk *scopedTracker) {
 	for slotName, slot := range snap.Slots {
-		if strk.slot(slot) {
+		// only check global scope slots
+		plugged, scope := strk.slottedScope(slot)
+		if !plugged || scope != globalScope {
 			continue
 		}
-		for appName, app := range snap.Apps {
-			app.Slots[slotName] = slot
-			slot.Apps[appName] = app
+
+		if !strk.slot(slot, appScope) {
+			for appName, app := range snap.Apps {
+				app.Slots[slotName] = slot
+				slot.Apps[appName] = app
+			}
 		}
-		for hookName, hook := range snap.Hooks {
-			hook.Slots[slotName] = slot
-			slot.Hooks[hookName] = hook
+
+		if !strk.slot(slot, hookScope) {
+			for hookName, hook := range snap.Hooks {
+				hook.Slots[slotName] = slot
+				slot.Hooks[hookName] = hook
+			}
 		}
 	}
 }
@@ -567,7 +658,9 @@ func bindImplicitHooks(snap *Info, strk *scopedTracker) {
 			continue
 		}
 		for _, plug := range snap.Plugs {
-			if strk.plug(plug) {
+			// only add plugs which are global scoped
+			plugged, scope := strk.pluggedScope(plug)
+			if !plugged || scope != globalScope {
 				continue
 			}
 			if hook.Plugs == nil {
@@ -580,9 +673,12 @@ func bindImplicitHooks(snap *Info, strk *scopedTracker) {
 			plug.Hooks[hookName] = hook
 		}
 		for _, slot := range snap.Slots {
-			if strk.slot(slot) {
+			// only add slots which are global scoped
+			slotted, scope := strk.slottedScope(slot)
+			if !slotted || scope != globalScope {
 				continue
 			}
+
 			if hook.Slots == nil {
 				hook.Slots = make(map[string]*SlotInfo)
 			}
