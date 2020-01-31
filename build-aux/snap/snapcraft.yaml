@@ -87,7 +87,8 @@ parts:
   # libc6 is part of core but we need it in the snapd snap for
   # CommandFromSystemSnap
   libc6:
-    plugin: nil
+    plugin: dump
+    source: arch
     stage-packages:
       - libc6
       - libc-bin
@@ -97,6 +98,8 @@ parts:
       - lib64/*
       - etc/ld.so.conf
       - etc/ld.so.conf.d/*
+    override-pull: |
+      echo "nope"
     override-stage: |
       snapcraftctl stage
       # fix symlinks of ld.so to be relative
