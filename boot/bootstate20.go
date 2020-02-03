@@ -53,6 +53,28 @@ func newBootState20Generic(typ snap.Type) bootState {
 }
 
 //
+// modeenv methods
+//
+
+type bootState20Modeenv struct {
+	modeenv *Modeenv
+}
+
+func (bsm *bootState20Modeenv) loadModeenv() error {
+	// don't read modeenv multiple times
+	if bsm.modeenv != nil {
+		return nil
+	}
+	modeenv, err := ReadModeenv(dirs.GlobalRootDir)
+	if err != nil {
+		return fmt.Errorf("cannot get snap revision: unable to read modeenv: %v", err)
+	}
+	bsm.modeenv = modeenv
+
+	return nil
+}
+
+//
 // kernel snap methods
 //
 
@@ -70,6 +92,12 @@ type bootState20Kernel struct {
 
 	// the kernel snap to try for setNext()
 	tryKernelSnap snap.PlaceInfo
+
+	// don't embed this struct - it will conflict with embedding
+	// bootState20Modeenv in bootState20Base when both bootState20Base and
+	// bootState20Kernel are embedded in bootState20MarkSuccessful
+	// also we only need to use it with setNext()
+	kModeenv bootState20Modeenv
 }
 
 func (ks20 *bootState20Kernel) loadBootloader() error {
@@ -157,6 +185,13 @@ func (ks20 *bootState20Kernel) setNext(next snap.PlaceInfo) (bool, bootStateUpda
 		return false, nil, err
 	}
 
+	// for setNext() we also need to add to the kernels in modeenv, so load the
+	// modeenv as well
+	err = ks20.kModeenv.loadModeenv()
+	if err != nil {
+		return false, nil, err
+	}
+
 	r, err := genericSetNext(ks20, next)
 	if err != nil {
 		return false, nil, err
@@ -202,7 +237,14 @@ func (ks20 *bootState20Kernel) commit() error {
 	// trySnap could be nil here if we called setNext on the current kernel
 	// snap
 	if ks20.tryKernelSnap != nil {
-		err := ks20.ebl.EnableTryKernel(ks20.tryKernelSnap)
+		// add the kernel to the modeenv
+		ks20.kModeenv.modeenv.CurrentKernels = append(ks20.kModeenv.modeenv.CurrentKernels, filepath.Base(ks20.tryKernelSnap.MountFile()))
+		err := ks20.kModeenv.modeenv.Write("")
+		if err != nil {
+			return err
+		}
+
+		err = ks20.ebl.EnableTryKernel(ks20.tryKernelSnap)
 		if err != nil {
 			return err
 		}
@@ -223,28 +265,13 @@ func (ks20 *bootState20Kernel) commit() error {
 // bootState20Base is meant to be embedded in the bootStateSetNext and
 // bootStateMarkSuccessful structs, handling reading/initializing the modeenv.
 type bootState20Base struct {
-	// the modeenv for the base snap, initialized with loadModeenv()
-	modeenv *Modeenv
+	bootState20Modeenv
 
 	// the base snap that was tried for markSuccessful()
 	triedBaseSnap snap.PlaceInfo
 
 	// the base snap to try for setNext()
 	tryBaseSnap snap.PlaceInfo
-}
-
-func (bs20 *bootState20Base) loadModeenv() error {
-	// don't read modeenv multiple times
-	if bs20.modeenv != nil {
-		return nil
-	}
-	modeenv, err := ReadModeenv(dirs.GlobalRootDir)
-	if err != nil {
-		return fmt.Errorf("cannot get snap revision: unable to read modeenv: %v", err)
-	}
-	bs20.modeenv = modeenv
-
-	return nil
 }
 
 func (bs20 *bootState20Base) status() (string, error) {

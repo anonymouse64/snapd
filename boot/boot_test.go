@@ -406,6 +406,15 @@ func (s *bootSetSuite) TestCoreParticipant20SetNextSameKernelSnap(c *C) {
 	coreDev := boottest.MockUC20Device("pc-kernel")
 	c.Assert(coreDev.HasModeenv(), Equals, true)
 
+	// default modeenv state
+	m := &boot.Modeenv{
+		Base:           "core20_1.snap",
+		CurrentKernels: []string{"pc-kernel_1.snap"},
+	}
+	err := m.Write("")
+	c.Assert(err, IsNil)
+	defer os.Remove(dirs.SnapModeenvFileUnder(dirs.GlobalRootDir))
+
 	// set the current kernel
 	kernel, err := snap.ParsePlaceInfoFromSnapFileName("pc-kernel_1.snap")
 	c.Assert(err, IsNil)
@@ -435,11 +444,25 @@ func (s *bootSetSuite) TestCoreParticipant20SetNextSameKernelSnap(c *C) {
 	// there was no attempt to enable a kernel
 	_, enableKernelCalls := s.bootloader.GetRunKernelImageFunctionSnapCalls("EnableTryKernel")
 	c.Assert(enableKernelCalls, Equals, 0)
+
+	// the modeenv is still the same as well
+	m2, err := boot.ReadModeenv("")
+	c.Assert(err, IsNil)
+	c.Assert(m2.CurrentKernels, DeepEquals, []string{"pc-kernel_1.snap"})
 }
 
 func (s *bootSetSuite) TestCoreParticipant20SetNextNewKernelSnap(c *C) {
 	coreDev := boottest.MockUC20Device("pc-kernel")
 	c.Assert(coreDev.HasModeenv(), Equals, true)
+
+	// default modeenv state
+	m := &boot.Modeenv{
+		Base:           "core20_1.snap",
+		CurrentKernels: []string{"pc-kernel_1.snap"},
+	}
+	err := m.Write("")
+	c.Assert(err, IsNil)
+	defer os.Remove(dirs.SnapModeenvFileUnder(dirs.GlobalRootDir))
 
 	// set the current kernel
 	kernel, err := snap.ParsePlaceInfoFromSnapFileName("pc-kernel_1.snap")
@@ -474,6 +497,11 @@ func (s *bootSetSuite) TestCoreParticipant20SetNextNewKernelSnap(c *C) {
 	// and we were asked to enable kernel2 as the try kernel
 	actual, _ := s.bootloader.GetRunKernelImageFunctionSnapCalls("EnableTryKernel")
 	c.Assert(actual, DeepEquals, []snap.PlaceInfo{kernel2})
+
+	// and that the modeenv now has this kernel listed
+	m2, err := boot.ReadModeenv("")
+	c.Assert(err, IsNil)
+	c.Assert(m2.CurrentKernels, DeepEquals, []string{"pc-kernel_1.snap", "pc-kernel_2.snap"})
 }
 
 func (s *bootSetSuite) TestCoreParticipant20SetNextSameBaseSnap(c *C) {
