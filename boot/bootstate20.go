@@ -178,6 +178,15 @@ func (ks20 *bootState20Kernel) setNext(next snap.PlaceInfo) (rebootRequired bool
 	if nextStatus == TryStatus {
 		ks20.tryKernelSnap = next
 		rebootRequired = true
+
+		// we also need to save the current kernel snap to use in commit() to
+		// the modeenv
+		current, err := ks20.ebl.Kernel()
+		if err != nil {
+			return false, nil, err
+		}
+
+		ks20.triedKernelSnap = current
 	}
 	ks20.commitKernelStatus = nextStatus
 
@@ -211,14 +220,14 @@ func (ks20 *bootState20Kernel) commit() error {
 	// first is currently a purely aesthetic choice.
 
 	// add the kernel to the modeenv and add the try-kernel symlink
-	// tryKernelSnap could be nil here if we called setNext on the current
-	// kernel snap
-	if ks20.tryKernelSnap != nil {
+	// tryKernelSnap and triedKernelSnap could be nil here if we called setNext
+	// on the current kernel snap
+	if ks20.tryKernelSnap != nil && ks20.triedKernelSnap != nil {
 		// add the kernel to the modeenv
-		ks20.kModeenv.modeenv.CurrentKernels = append(
-			ks20.kModeenv.modeenv.CurrentKernels,
+		ks20.kModeenv.modeenv.CurrentKernels = []string{
+			ks20.triedKernelSnap.Filename(),
 			ks20.tryKernelSnap.Filename(),
-		)
+		}
 		err := ks20.kModeenv.modeenv.Write("")
 		if err != nil {
 			return err

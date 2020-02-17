@@ -209,9 +209,11 @@ func (s *coreBootSetSuite) TestSetNextBoot20ForKernel(c *C) {
 	actual, _ = s.bootloader.GetRunKernelImageFunctionSnapCalls("EnableKernel")
 	c.Assert(actual, DeepEquals, []snap.PlaceInfo(nil))
 
-	// check that SetNextBoot asked the bootloader for a kernel
+	// check that SetNextBoot asked the bootloader for a kernel twice, once for
+	// revisions() and once for markSuccessful() since we are calling setNext()
+	// on a new kernel
 	_, nKernelCalls := s.bootloader.GetRunKernelImageFunctionSnapCalls("Kernel")
-	c.Assert(nKernelCalls, Equals, 1)
+	c.Assert(nKernelCalls, Equals, 2)
 
 	// and that the modeenv now has this kernel listed
 	m2, err := boot.ReadModeenv("")

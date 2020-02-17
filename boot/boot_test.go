@@ -491,9 +491,11 @@ func (s *bootSetSuite) TestCoreParticipant20SetNextNewKernelSnap(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(rebootRequired, Equals, true)
 
-	// make sure that the bootloader was asked for the current kernel
+	// check that SetNextBoot asked the bootloader for a kernel twice, once for
+	// revisions() and once for markSuccessful() since we are calling setNext()
+	// on a new kernel
 	_, nKernelCalls := s.bootloader.GetRunKernelImageFunctionSnapCalls("Kernel")
-	c.Assert(nKernelCalls, Equals, 1)
+	c.Assert(nKernelCalls, Equals, 2)
 
 	// ensure that kernel_status is now try
 	c.Assert(s.bootloader.BootVars["kernel_status"], Equals, boot.TryStatus)
