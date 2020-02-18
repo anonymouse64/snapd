@@ -314,6 +314,7 @@ func MarkBootSuccessful(dev Device) error {
 		if err != nil {
 			return err
 		}
+		fmt.Println("marking successful")
 		u, err = s.markSuccessful(u)
 		if err != nil {
 			return fmt.Errorf(errPrefix, err)

@@ -40,9 +40,7 @@ import (
 	"github.com/snapcore/snapd/testutil"
 )
 
-type firstBoot20Suite struct {
-	firstBootBaseTest
-
+type boot20BaseTest struct {
 	snapYaml map[string]string
 
 	// TestingSeed20 helps populating seeds (it provides
@@ -50,25 +48,13 @@ type firstBoot20Suite struct {
 	*seedtest.TestingSeed20
 }
 
-var _ = Suite(&firstBoot20Suite{})
-
-func (s *firstBoot20Suite) SetUpTest(c *C) {
+func (s *boot20BaseTest) setupBoot20Base() {
 	s.snapYaml = seedtest.SampleSnapYaml
 
 	s.TestingSeed20 = &seedtest.TestingSeed20{}
-
-	s.setupBaseTest(c, &s.TestingSeed20.SeedSnaps)
-
-	// don't start the overlord here so that we can mock different modeenvs
-	// later, which is needed by devicestart manager startup with uc20 booting
-
-	s.SeedDir = dirs.SnapSeedDir
-
-	// mock the snap mapper as snapd here
-	s.AddCleanup(ifacestate.MockSnapMapper(&ifacestate.CoreSnapdSystemMapper{}))
 }
 
-func (s *firstBoot20Suite) setupCore20Seed(c *C, sysLabel string) {
+func (s *boot20BaseTest) setup20SeedSnaps(c *C) {
 	gadgetYaml := `
 volumes:
     volume-id:
@@ -89,13 +75,46 @@ volumes:
 		if yamlKey == "pc=20" {
 			files = append(files, []string{"meta/gadget.yaml", gadgetYaml})
 		}
-		s.MakeAssertedSnap(c, s.snapYaml[yamlKey], files, snap.R(1), "canonical", s.StoreSigning.Database)
+		s.MakeAssertedSnap(
+			c,
+			s.snapYaml[yamlKey],
+			files,
+			snap.R(1),
+			"canonical",
+			s.StoreSigning.Database,
+		)
 	}
 
 	makeSnap("snapd")
 	makeSnap("pc-kernel=20")
 	makeSnap("core20")
 	makeSnap("pc=20")
+}
+
+type firstBoot20Suite struct {
+	firstBootBaseTest
+
+	boot20BaseTest
+}
+
+var _ = Suite(&firstBoot20Suite{})
+
+func (s *firstBoot20Suite) SetUpTest(c *C) {
+	s.setupBoot20Base()
+
+	s.setupBaseTest(c, &s.TestingSeed20.SeedSnaps)
+
+	// don't start the overlord here so that we can mock different modeenvs
+	// later, which is needed by devicestart manager startup with uc20 booting
+
+	s.SeedDir = dirs.SnapSeedDir
+
+	// mock the snap mapper as snapd here
+	s.AddCleanup(ifacestate.MockSnapMapper(&ifacestate.CoreSnapdSystemMapper{}))
+}
+
+func (s *firstBoot20Suite) setupCore20Seed(c *C, sysLabel string) {
+	s.setup20SeedSnaps(c)
 
 	s.MakeSeed(c, sysLabel, "my-brand", "my-model", map[string]interface{}{
 		"display-name": "my model",

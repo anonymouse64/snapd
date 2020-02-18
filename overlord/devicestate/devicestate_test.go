@@ -56,6 +56,7 @@ import (
 	"github.com/snapcore/snapd/snap"
 	"github.com/snapcore/snapd/snap/snaptest"
 	"github.com/snapcore/snapd/store/storetest"
+	"github.com/snapcore/snapd/testutil"
 	"github.com/snapcore/snapd/timings"
 )
 
@@ -83,6 +84,8 @@ type deviceMgrBaseSuite struct {
 	restoreSanitize          func()
 
 	newFakeStore func(storecontext.DeviceBackend) snapstate.StoreService
+
+	testutil.BaseTest
 }
 
 type deviceMgrSuite struct {

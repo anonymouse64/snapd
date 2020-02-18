@@ -71,6 +71,7 @@ func (ks20 *bootState20Kernel) loadBootenv() error {
 	}
 	// find the bootloader and ensure it's an extracted run kernel image
 	// bootloader
+	fmt.Println("finding bootloader")
 	bl, err := bootloader.Find("", nil)
 	if err != nil {
 		return err
@@ -82,8 +83,11 @@ func (ks20 *bootState20Kernel) loadBootenv() error {
 
 	ks20.ebl = ebl
 
+	fmt.Println("getting kernel_status")
+
 	// also get the kernel_status
 	m, err := ebl.GetBootVars("kernel_status")
+	fmt.Println("huh")
 	if err != nil {
 		return err
 	}
@@ -264,6 +268,7 @@ func (bs20 *bootState20Base) revisions() (curSnap, trySnap snap.PlaceInfo, tryin
 
 func (bs20 *bootState20Base) markSuccessful(update bootStateUpdate) (bootStateUpdate, error) {
 	// call the generic method with this object to do most of the legwork
+	fmt.Println("base mark successful")
 	u, sn, err := genericMarkSuccessful(bs20, update)
 	if err != nil {
 		return nil, err
@@ -378,6 +383,7 @@ func threadBootState20MarkSuccessful(update bootStateUpdate) (*bootState20MarkSu
 		bsmark = &bootState20MarkSuccessful{}
 	}
 
+	fmt.Println("loading boot env")
 	// initialize both types in case we need to mark both
 	err := bsmark.loadBootenv()
 	if err != nil {
@@ -396,6 +402,7 @@ func threadBootState20MarkSuccessful(update bootStateUpdate) (*bootState20MarkSu
 // then the first return value is guaranteed to always be non-nil.
 func genericMarkSuccessful(b bootState, update bootStateUpdate) (bsmark *bootState20MarkSuccessful, trySnap snap.PlaceInfo, err error) {
 	// create a new object or combine the existing one with this type
+	fmt.Println(">>> thread")
 	bsmark, err = threadBootState20MarkSuccessful(update)
 	if err != nil {
 		return nil, nil, err

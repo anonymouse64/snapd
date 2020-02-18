@@ -496,6 +496,7 @@ func (m *DeviceManager) ensureBootOk() error {
 			return err
 		}
 		if err == nil {
+			fmt.Println("marking boot successful")
 			if err := boot.MarkBootSuccessful(deviceCtx); err != nil {
 				return err
 			}
