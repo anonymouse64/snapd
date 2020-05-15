@@ -35,6 +35,7 @@ import (
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
+	"github.com/snapcore/snapd/osutil/disks"
 	"github.com/snapcore/snapd/overlord/state"
 	"github.com/snapcore/snapd/secboot"
 	"github.com/snapcore/snapd/snap"
@@ -220,6 +221,12 @@ func generateMountsModeRecover(mst *initramfsMountsState, recoverySystem string)
 		return nil
 	}
 
+	// get the boot disk from ubuntu-seed
+	bootDisk, err := disks.DiskFromMountPoint(boot.InitramfsUbuntuSeedDir, nil)
+	if err != nil {
+		return err
+	}
+
 	// 3. mount ubuntu-data for recovery
 	isRecoverDataMounted, err := mst.IsMounted(boot.InitramfsHostUbuntuDataDir)
 	if err != nil {
@@ -227,13 +234,29 @@ func generateMountsModeRecover(mst *initramfsMountsState, recoverySystem string)
 	}
 	if !isRecoverDataMounted {
 		const lockKeysForLast = true
-		device, err := secbootUnlockVolumeIfEncrypted("ubuntu-data", lockKeysForLast)
+		device, err := secbootUnlockVolumeIfEncrypted(bootDisk, "ubuntu-data", lockKeysForLast)
 		if err != nil {
 			return err
 		}
 
 		fmt.Fprintf(stdout, "%s %s\n", device, boot.InitramfsHostUbuntuDataDir)
 		return nil
+	}
+
+	// verify that the boot disk and the mount point for host ubuntu-data are
+	// on the same disk
+	opts := &disks.Options{}
+	_, err = bootDisk.FindMatchingPartitionUUID("ubuntu-data-enc")
+	if err == nil {
+		opts.IsDecryptedDevice = true
+	}
+	matches, err := bootDisk.MountPointIsFromDisk(boot.InitramfsHostUbuntuDataDir, opts)
+	if err != nil {
+		return err
+	}
+	if !matches {
+		// we somehow mounted ubuntu-data not from the same disk as ubuntu-seed
+		return fmt.Errorf("ubuntu-data is not mounted from the same disk as ubuntu-seed, refusing to boot")
 	}
 
 	// 4. final step: copy the auth data from the real ubuntu-data dir to the
@@ -365,6 +388,12 @@ func generateMountsModeRun(mst *initramfsMountsState) error {
 		return selectPartitionMatchingKernelDisk(boot.InitramfsUbuntuBootDir, "ubuntu-boot")
 	}
 
+	// get the boot disk from ubuntu-boot
+	bootDisk, err := disks.DiskFromMountPoint(boot.InitramfsUbuntuBootDir, nil)
+	if err != nil {
+		return err
+	}
+
 	// 2. mount ubuntu-seed
 	isMounted, err = mst.IsMounted(boot.InitramfsUbuntuSeedDir)
 	if err != nil {
@@ -375,6 +404,16 @@ func generateMountsModeRun(mst *initramfsMountsState) error {
 		//            partition to mount for ubuntu-seed
 		fmt.Fprintf(stdout, "/dev/disk/by-label/ubuntu-seed %s\n", boot.InitramfsUbuntuSeedDir)
 		return nil
+	}
+
+	// cross-check that ubuntu-seed comes from same disk as ubuntu-boot
+	matches, err := bootDisk.MountPointIsFromDisk(boot.InitramfsUbuntuSeedDir, nil)
+	if err != nil {
+		return err
+	}
+	if !matches {
+		// we somehow mounted ubuntu-seed not from the same disk as ubuntu-seed
+		return fmt.Errorf("ubuntu-seed is not mounted from the same disk as ubuntu-boot, refusing to boot")
 	}
 
 	// 3.1. measure model
@@ -394,13 +433,29 @@ func generateMountsModeRun(mst *initramfsMountsState) error {
 	}
 	if !isDataMounted {
 		const lockKeysForLast = true
-		device, err := secbootUnlockVolumeIfEncrypted("ubuntu-data", lockKeysForLast)
+		device, err := secbootUnlockVolumeIfEncrypted(bootDisk, "ubuntu-data-enc", lockKeysForLast)
 		if err != nil {
 			return err
 		}
 
 		fmt.Fprintf(stdout, "%s %s\n", device, boot.InitramfsDataDir)
 		return nil
+	}
+
+	// verify that the boot disk and the mount point for host ubuntu-data are
+	// on the same disk
+	opts := &disks.Options{}
+	_, err = bootDisk.FindMatchingPartitionUUID("ubuntu-data-enc")
+	if err == nil {
+		opts.IsDecryptedDevice = true
+	}
+	matches, err = bootDisk.MountPointIsFromDisk(boot.InitramfsHostUbuntuDataDir, opts)
+	if err != nil {
+		return err
+	}
+	if !matches {
+		// we somehow mounted ubuntu-data not from the same disk as ubuntu-seed
+		return fmt.Errorf("ubuntu-data is not mounted from the same disk as ubuntu-boot, refusing to boot")
 	}
 
 	// 4.1. read modeenv

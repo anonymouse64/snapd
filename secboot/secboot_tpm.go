@@ -33,6 +33,7 @@ import (
 	"github.com/snapcore/snapd/boot"
 	"github.com/snapcore/snapd/bootloader/efi"
 	"github.com/snapcore/snapd/logger"
+	"github.com/snapcore/snapd/osutil/disks"
 	"github.com/snapcore/snapd/randutil"
 )
 
@@ -155,7 +156,7 @@ var (
 // name exists and unlocks it. With lockKeysOnFinish set, access to the sealed
 // keys will be locked when this function completes. The path to the unencrypted
 // device node is returned.
-func UnlockVolumeIfEncrypted(name string, lockKeysOnFinish bool) (string, error) {
+func UnlockVolumeIfEncrypted(bootDisk disks.Disk, name string, lockKeysOnFinish bool) (string, error) {
 	// TODO:UC20: use sb.SecureConnectToDefaultTPM() if we decide there's benefit in doing that or
 	//            we have a hard requirement for a valid EK cert chain for every boot (ie, panic
 	//            if there isn't one). But we can't do that as long as we need to download
@@ -186,10 +187,14 @@ func UnlockVolumeIfEncrypted(name string, lockKeysOnFinish bool) (string, error)
 			}
 		}()
 
-		ok, encdev := isDeviceEncrypted(name)
-		if !ok {
+		partuuid, err := bootDisk.FindMatchingPartitionUUID("ubuntu-data-enc")
+		if err != nil && err == disks.ErrLabelNotFound {
+			// no encrypted partition, should use the unencrypted partition
 			return nil
+		} else if err != nil {
+			return err
 		}
+		encdev := filepath.Join("/dev/disk/by-partuuid", partuuid)
 
 		if tpmErr != nil {
 			return fmt.Errorf("cannot unlock encrypted device %q: %v", name, tpmErr)
@@ -215,11 +220,13 @@ func UnlockVolumeIfEncrypted(name string, lockKeysOnFinish bool) (string, error)
 		return filepath.Join("/dev/mapper", mapperName), nil
 	}
 
-	// otherwise use the device from /dev/disk/by-label
-	// TODO:UC20: we want to always determine the ubuntu-data partition by
-	//            referencing the ubuntu-boot or ubuntu-seed partitions and not
-	//            by using labels
-	return filepath.Join(devDiskByLabelDir, name), nil
+	// otherwise use the ubuntu-data partition from the boot disk
+	partuuid, err := bootDisk.FindMatchingPartitionUUID("ubuntu-data")
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join("/dev/disk/by-partuuid", partuuid), nil
 }
 
 // UnlockEncryptedPartition unseals the keyfile and opens an encrypted device.
