@@ -22,6 +22,7 @@ package disks
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -41,6 +42,10 @@ var (
 
 	luksUUIDPatternRe = regexp.MustCompile(`(?m)CRYPT-LUKS2-([0-9a-f]{32})`)
 )
+
+// ErrLabelNotFound is returned when a partition with the specified label does
+// not exist for the disk.
+var ErrLabelNotFound = errors.New("label not found on disk")
 
 // diskFromMountPoint is exposed for mocking from other tests via
 // MockMountPointDisksToPartionMapping, but we can't just assign
@@ -344,7 +349,7 @@ func (d *disk) FindMatchingPartitionUUID(label string) (string, error) {
 		return partuuid, nil
 	}
 
-	return "", fmt.Errorf("couldn't find label %q", label)
+	return "", ErrLabelNotFound
 }
 
 func (d *disk) MountPointIsFromDisk(mountpoint string, opts *Options) (bool, error) {
