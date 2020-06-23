@@ -280,50 +280,82 @@ create_nested_core_vm(){
             if is_core_16_nested_system; then
                 echo "Build from current branch is not supported yet for uc16"
                 exit 1
+            elif is_core_20_nested_system; then
+                # shellcheck source=tests/lib/prepare.sh
+                . "$TESTSLIB"/prepare.sh
+
+                snap download --basename=pc-kernel --channel="20/edge" pc-kernel
+                uc20_build_initramfs_kernel_snap "$PWD/pc-kernel.snap" "$WORK_DIR/image"
+
+                # Get the snakeoil key and cert
+                KEY_NAME=$(get_snakeoil_key)
+                SNAKEOIL_KEY="$PWD/$KEY_NAME.key"
+                SNAKEOIL_CERT="$PWD/$KEY_NAME.pem"
+
+                # Prepare the pc kernel snap
+                KERNEL_SNAP=$(ls "$WORK_DIR"/image/pc-kernel_*.snap)
+                KERNEL_UNPACKED="$WORK_DIR"/image/kernel-unpacked
+                unsquashfs -d "$KERNEL_UNPACKED" "$KERNEL_SNAP"
+                sbattach --remove "$KERNEL_UNPACKED/kernel.efi"
+                sbsign --key "$SNAKEOIL_KEY" --cert "$SNAKEOIL_CERT" "$KERNEL_UNPACKED/kernel.efi"  --output "$KERNEL_UNPACKED/kernel.efi"
+                snap pack "$KERNEL_UNPACKED" "$WORK_DIR/image"
+
+                chmod 0600 "$KERNEL_SNAP"
+                rm -f "$PWD/pc-kernel.snap"
+                rm -rf "$KERNEL_UNPACKED"
+                EXTRA_FUNDAMENTAL="--snap $KERNEL_SNAP"
+
+                # Prepare the pc gadget snap (unless provided by extra-snaps)
+                GADGET_SNAP=""
+                if [ -d extra-snaps ]; then
+                    GADGET_SNAP=$(find extra-snaps -name 'pc_*.snap')
+                fi
+                if [ -z "$GADGET_SNAP" ]; then
+                    snap download --basename=pc --channel="20/edge" pc
+                    unsquashfs -d pc-gadget pc.snap
+                    secboot_sign_gadget pc-gadget "$SNAKEOIL_KEY" "$SNAKEOIL_CERT"
+                    # replace the kernel cmdline to output systemd to serial for
+                    # debugging failed boots where we never can ssh to the
+                    # nested VM to get journal output there
+                    newCmdline="set cmdline=\"console=tty1 console=ttyS0 rd.systemd.journald.forward_to_console=1 systemd.journald.forward_to_console=1 panic=-1\""
+                    sed -i pc-gadget/grub.conf -e "s@set cmdline=.*@$newCmdline@"
+                    # TODO:UC20: this will not work anymore for run mode when 
+                    #            snapd starts installing it's own recovery 
+                    #            grub.conf
+                    sed -i pc-gadget/grub-recovery.conf -e "s@set cmdline=.*@$newCmdline@"
+
+                    snap pack pc-gadget/ "$WORK_DIR/image"
+
+                    GADGET_SNAP=$(ls "$WORK_DIR"/image/pc_*.snap)
+                    rm -f "$PWD/pc.snap" "$SNAKEOIL_KEY" "$SNAKEOIL_CERT"
+                    EXTRA_FUNDAMENTAL="--snap $GADGET_SNAP"
+                fi
+
+                snap download --channel="latest/edge" snapd
+                repack_snapd_snap_with_deb_content_and_run_mode_firstboot_tweaks "$PWD/new-snapd" "false"
+                EXTRA_FUNDAMENTAL="$EXTRA_FUNDAMENTAL --snap $PWD/new-snapd/snapd_*.snap"
+            elif is_core_18_nested_system; then
+                repack_snapd_snap_with_deb_content "$WORK_DIR"
+                EXTRA_FUNDAMENTAL="$EXTRA_FUNDAMENTAL --snap $WORK_DIR/snapd_*.snap"
+
+                GADGET_SNAP=""
+                if [ -d extra-snaps ]; then
+                    GADGET_SNAP=$(find extra-snaps -name 'pc_*.snap')
+                fi
+                if [ -z "$GADGET_SNAP" ]; then
+                    snap download --basename=pc --channel="20/edge" pc
+                    unsquashfs -d pc-gadget pc.snap
+                    # replace the kernel cmdline to output systemd to serial for
+                    # debugging failed boots where we never can ssh to the
+                    # nested VM to get journal output there
+                    newCmdline="set cmdline=\"root=LABEL=\$label snap_core=\$snap_core snap_kernel=\$snap_kernel ro net.ifnames=0 init=/lib/systemd/systemd console=tty1 console=ttyS0 systemd.journald.forward_to_console=1 panic=-1\""
+                    sed -i pc-gadget/grub.conf -e "s@set cmdline=.*@$newCmdline@"
+                    snap pack pc-gadget/ "$WORK_DIR/image"
+                    
+                    GADGET_SNAP=$(ls "$WORK_DIR"/image/pc_*.snap)
+                    EXTRA_FUNDAMENTAL="--snap $GADGET_SNAP"
+                fi
             fi
-            # shellcheck source=tests/lib/prepare.sh
-            . "$TESTSLIB"/prepare.sh
-
-            snap download --basename=pc-kernel --channel="20/edge" pc-kernel
-            uc20_build_initramfs_kernel_snap "$PWD/pc-kernel.snap" "$WORK_DIR/image"
-
-            # Get the snakeoil key and cert
-            KEY_NAME=$(get_snakeoil_key)
-            SNAKEOIL_KEY="$PWD/$KEY_NAME.key"
-            SNAKEOIL_CERT="$PWD/$KEY_NAME.pem"
-
-            # Prepare the pc kernel snap
-            KERNEL_SNAP=$(ls "$WORK_DIR"/image/pc-kernel_*.snap)
-            KERNEL_UNPACKED="$WORK_DIR"/image/kernel-unpacked
-            unsquashfs -d "$KERNEL_UNPACKED" "$KERNEL_SNAP"
-            sbattach --remove "$KERNEL_UNPACKED/kernel.efi"
-            sbsign --key "$SNAKEOIL_KEY" --cert "$SNAKEOIL_CERT" "$KERNEL_UNPACKED/kernel.efi"  --output "$KERNEL_UNPACKED/kernel.efi"
-            snap pack "$KERNEL_UNPACKED" "$WORK_DIR/image"
-
-            chmod 0600 "$KERNEL_SNAP"
-            rm -f "$PWD/pc-kernel.snap"
-            rm -rf "$KERNEL_UNPACKED"
-            EXTRA_FUNDAMENTAL="--snap $KERNEL_SNAP"
-
-            # Prepare the pc gadget snap (unless provided by extra-snaps)
-            GADGET_SNAP=""
-            if [ -d extra-snaps ]; then
-                GADGET_SNAP=$(find extra-snaps -name 'pc_*.snap')
-            fi
-            if [ -z "$GADGET_SNAP" ]; then
-                snap download --basename=pc --channel="20/edge" pc
-                unsquashfs -d pc-gadget pc.snap
-                secboot_sign_gadget pc-gadget "$SNAKEOIL_KEY" "$SNAKEOIL_CERT"
-                snap pack pc-gadget/ "$WORK_DIR/image"
-
-                GADGET_SNAP=$(ls "$WORK_DIR"/image/pc_*.snap)
-                rm -f "$PWD/pc.snap" "$SNAKEOIL_KEY" "$SNAKEOIL_CERT"
-                EXTRA_FUNDAMENTAL="--snap $GADGET_SNAP"
-            fi
-
-            snap download --channel="latest/edge" snapd
-            repack_snapd_snap_with_deb_content_and_run_mode_firstboot_tweaks "$PWD/new-snapd" "false"
-            EXTRA_FUNDAMENTAL="$EXTRA_FUNDAMENTAL --snap $PWD/new-snapd/snapd_*.snap"
         fi
 
         "$UBUNTU_IMAGE" --image-size 10G "$NESTED_MODEL" \
