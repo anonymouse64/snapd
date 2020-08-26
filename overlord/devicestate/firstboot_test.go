@@ -222,6 +222,7 @@ func (s *firstBoot16Suite) TestPopulateFromSeedOnClassicNoop(c *C) {
 	err := os.Remove(filepath.Join(dirs.SnapSeedDir, "assertions"))
 	c.Assert(err, IsNil)
 
+	fmt.Println("BEGIN BROKEN TEST")
 	tsAll, err := devicestate.PopulateStateFromSeedImpl(st, nil, s.perfTimings)
 	c.Assert(err, IsNil)
 	checkTrivialSeeding(c, tsAll)

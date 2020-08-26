@@ -11,24 +11,25 @@ import (
 
 	. "gopkg.in/check.v1"
 
+	"github.com/snapcore/snapd/asserts"
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/overlord/auth"
 	"github.com/snapcore/snapd/overlord/devicestate"
 	"github.com/snapcore/snapd/overlord/devicestate/devicestatetest"
+	"github.com/snapcore/snapd/overlord/snapstate"
 	"github.com/snapcore/snapd/release"
+	"github.com/snapcore/snapd/snap"
 	"github.com/snapcore/snapd/sysconfig"
 	"github.com/snapcore/snapd/testutil"
 )
 
-type cloudInitSuite struct {
+type cloudInitBaseSuite struct {
 	deviceMgrBaseSuite
 	mockLogger *bytes.Buffer
 }
 
-var _ = Suite(&cloudInitSuite{})
-
-func (s *cloudInitSuite) SetUpTest(c *C) {
+func (s *cloudInitBaseSuite) setup(c *C) {
 	s.deviceMgrBaseSuite.SetUpTest(c)
 
 	// undo the cloud-init mocking from deviceMgrBaseSuite, since here we
@@ -49,6 +50,167 @@ func (s *cloudInitSuite) SetUpTest(c *C) {
 
 	// mock /etc/cloud on writable
 	err := os.MkdirAll(filepath.Join(dirs.GlobalRootDir, "etc", "cloud"), 0755)
+	c.Assert(err, IsNil)
+}
+
+type cloudInitSuite struct {
+	cloudInitBaseSuite
+}
+
+func (s *cloudInitSuite) SetUpTest(c *C) {
+	s.cloudInitBaseSuite.setup(c)
+
+	// make a uc16/uc18 style model assertion for the device
+	s.state.Lock()
+	defer s.state.Unlock()
+
+	s.makeModelAssertionInState(c, "canonical", "pc-model", map[string]interface{}{
+		"architecture": "amd64",
+		"kernel":       "pc-kernel",
+		"gadget":       "pc",
+		"base":         "core18",
+	})
+	devicestatetest.SetDevice(s.state, &auth.DeviceState{
+		Brand:  "canonical",
+		Model:  "pc-model",
+		Serial: "serial",
+	})
+}
+
+var _ = Suite(&cloudInitSuite{})
+
+var _ = Suite(&cloudInitUC20Suite{})
+
+type cloudInitUC20Suite struct {
+	cloudInitBaseSuite
+}
+
+func (s *cloudInitUC20Suite) setModelAssertionWithGrade(c *C, grade asserts.ModelGrade) {
+	s.cloudInitBaseSuite.setup(c)
+
+	s.state.Lock()
+	defer s.state.Unlock()
+
+	// s.makeModelAssertionInState(c, "canonical", "pc20-model", map[string]interface{}{
+	// 	"display-name": "UC20 pc model",
+	// 	"architecture": "amd64",
+	// 	"base":         "core20",
+	// 	"grade":        string(grade),
+	// 	"snaps": []interface{}{
+	// 		map[string]interface{}{
+	// 			"name":            "pc-kernel",
+	// 			"id":              "pckernelidididididididididididid",
+	// 			"type":            "kernel",
+	// 			"default-channel": "20",
+	// 		},
+	// 		map[string]interface{}{
+	// 			"name":            "pc",
+	// 			"id":              "pcididididididididididididididid",
+	// 			"type":            "gadget",
+	// 			"default-channel": "20",
+	// 		}},
+	// })
+	// devicestatetest.SetDevice(s.state, &auth.DeviceState{
+	// 	Brand:  "canonical",
+	// 	Model:  "pc20-model",
+	// 	Serial: "serial",
+	// })
+}
+
+func (s *cloudInitUC20Suite) TestCloudInitUC20CloudGadgetNoDisable(c *C) {
+	// set model assertion
+	s.setModelAssertionWithGrade(c, asserts.ModelDangerous)
+
+	return
+
+	si := &snap.SideInfo{
+		RealName: "pc",
+		Revision: snap.R(1),
+		SnapID:   "pcididididididididididididididid",
+	}
+
+	// create a gadget snap in snapstate
+	st := s.o.State()
+	st.Lock()
+	snapstate.Set(st, "pc", &snapstate.SnapState{
+		SnapType: "gadget",
+		Current:  snap.R(1),
+		Active:   true,
+		Sequence: []*snap.SideInfo{si},
+	})
+	st.Unlock()
+
+	// create a cloud.conf file in the gadget snap's mount dir
+	gadgetDir := filepath.Join(dirs.SnapMountDir, "pc", "1")
+	c.Assert(os.MkdirAll(gadgetDir, 0755), IsNil)
+	c.Assert(ioutil.WriteFile(filepath.Join(gadgetDir, "cloud.conf"), nil, 0644), IsNil)
+
+	// pretend that cloud-init finished running
+	r := devicestate.MockCloudInitStatus(func() (sysconfig.CloudInitState, error) {
+		return sysconfig.CloudInitDone, nil
+	})
+	defer r()
+
+	r = devicestate.MockRestrictCloudInit(func(state sysconfig.CloudInitState, opts *sysconfig.CloudInitRestrictOptions) (sysconfig.CloudInitRestrictionResult, error) {
+		c.Assert(state, Equals, sysconfig.CloudInitDone)
+		c.Assert(opts, Not(IsNil))
+		// a gadget cloud.conf is not NoCloud
+		c.Assert(opts.DisableNoCloud, Equals, false)
+		return sysconfig.CloudInitRestrictionResult{
+			Action:     "disabled",
+			DataSource: "GCE",
+		}, nil
+	})
+	defer r()
+
+	err := devicestate.EnsureCloudInitRestricted(s.mgr)
+	c.Assert(err, IsNil)
+}
+
+func (s *cloudInitUC20Suite) TestCloudInitUC20NoCloudGadgetDisables(c *C) {
+	return
+	// set model assertion
+	s.setModelAssertionWithGrade(c, asserts.ModelDangerous)
+
+	si := &snap.SideInfo{
+		RealName: "pc",
+		Revision: snap.R(1),
+		SnapID:   "pcididididididididididididididid",
+	}
+
+	// create a gadget snap in snapstate
+	st := s.o.State()
+	st.Lock()
+	snapstate.Set(st, "pc", &snapstate.SnapState{
+		SnapType: "gadget",
+		Current:  snap.R(1),
+		Active:   true,
+		Sequence: []*snap.SideInfo{si},
+	})
+	st.Unlock()
+
+	// create the gadget snap's mount dir
+	gadgetDir := filepath.Join(dirs.SnapMountDir, "pc", "1")
+	c.Assert(os.MkdirAll(gadgetDir, 0755), IsNil)
+
+	// pretend that cloud-init never ran
+	r := devicestate.MockCloudInitStatus(func() (sysconfig.CloudInitState, error) {
+		return sysconfig.CloudInitUntriggered, nil
+	})
+	defer r()
+
+	r = devicestate.MockRestrictCloudInit(func(state sysconfig.CloudInitState, opts *sysconfig.CloudInitRestrictOptions) (sysconfig.CloudInitRestrictionResult, error) {
+		c.Assert(state, Equals, sysconfig.CloudInitUntriggered)
+		c.Assert(opts, Not(IsNil))
+		// a gadget cloud.conf is not NoCloud
+		c.Assert(opts.DisableNoCloud, Equals, true)
+		return sysconfig.CloudInitRestrictionResult{
+			Action: "disabled",
+		}, nil
+	})
+	defer r()
+
+	err := devicestate.EnsureCloudInitRestricted(s.mgr)
 	c.Assert(err, IsNil)
 }
 
@@ -128,7 +290,15 @@ func (s *cloudInitSuite) TestCloudInitDeviceManagerEnsureRestrictsCloudInit(c *C
 	st := s.o.State()
 	st.Lock()
 	// avoid device registration
+	s.makeModelAssertionInState(c, "canonical", "pc-model", map[string]interface{}{
+		"architecture": "amd64",
+		"kernel":       "pc-kernel",
+		"gadget":       "pc",
+		"base":         "core18",
+	})
 	devicestatetest.SetDevice(s.state, &auth.DeviceState{
+		Brand:  "canonical",
+		Model:  "pc-model",
 		Serial: "123",
 	})
 	st.Unlock()

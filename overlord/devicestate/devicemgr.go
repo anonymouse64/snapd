@@ -34,6 +34,7 @@ import (
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/i18n"
 	"github.com/snapcore/snapd/logger"
+	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/overlord/assertstate"
 	"github.com/snapcore/snapd/overlord/auth"
 	"github.com/snapcore/snapd/overlord/configstate/config"
@@ -271,7 +272,10 @@ func (m *DeviceManager) ensureOperationalShouldBackoff(now time.Time) bool {
 }
 
 func setClassicFallbackModel(st *state.State, device *auth.DeviceState) error {
+	fmt.Println("trying to set classic fallback model:", sysdb.GenericClassicModel())
+
 	err := assertstate.Add(st, sysdb.GenericClassicModel())
+	fmt.Println("err trying to set classic fallback model: ", err)
 	if err != nil && !asserts.IsUnaccceptedUpdate(err) {
 		return fmt.Errorf(`cannot install "generic-classic" fallback model assertion: %v`, err)
 	}
@@ -677,6 +681,36 @@ func (m *DeviceManager) ensureCloudInitRestricted() error {
 			// RestrictCloudInit will error on state CloudInitEnabled
 			opts.ForceDisable = true
 			statusMsg = "failed to transition to done or error state after 5 minutes"
+		}
+
+		// we should always have a model if we are seeded and are not on classic
+		model, err := m.Model()
+		if err != nil {
+			return err
+		}
+
+		// For UC20, we want to always disable cloud-init after it has run on
+		// first boot unless we are in a "real cloud", i.e. not using NoCloud,
+		// or if we installed cloud-init configuration from the gadget
+		if model.Grade() != asserts.ModelGradeUnset {
+			// look for cloud.conf in the installed gadget snap
+			gadget := model.Gadget()
+			if gadget == "" {
+				// catastrophic error, we have a grade set but no gadget in the
+				// model?
+				return fmt.Errorf("internal error: model assertion has a grade of %s, but does not have a gadget", model.Grade())
+			}
+			gadgetInfo, err := snapstate.CurrentInfo(m.state, gadget)
+			if err != nil {
+				return err
+			}
+
+			cloudGadgetConf := filepath.Join(gadgetInfo.MountDir(), "cloud.conf")
+			if !osutil.FileExists(cloudGadgetConf) {
+				// no gadget cloud conf so disable cloud-init if it's not
+				// NoCloud
+				opts.DisableNoCloud = true
+			}
 		}
 
 		// now restrict/disable cloud-init

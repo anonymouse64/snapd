@@ -117,18 +117,25 @@ func populateStateFromSeedImpl(st *state.State, opts *populateStateFromSeedOptio
 		return nil, err
 	}
 
+	fmt.Println("passed")
+
 	var model *asserts.Model
 	// ack all initial assertions
 	timings.Run(tm, "import-assertions", "import assertions from seed", func(nested timings.Measurer) {
 		model, err = importAssertionsFromSeed(st, deviceSeed)
 	})
+	fmt.Printf("passed1.5: %v\n", err)
 	if err != nil && err != errNothingToDo {
 		return nil, err
 	}
 
+	fmt.Println("2passed")
+
 	if err == errNothingToDo {
 		return trivialSeeding(st), nil
 	}
+
+	fmt.Println("3passed")
 
 	err = deviceSeed.LoadMeta(tm)
 	if release.OnClassic && err == seed.ErrNoMeta {
@@ -141,6 +148,8 @@ func populateStateFromSeedImpl(st *state.State, opts *populateStateFromSeedOptio
 	if err != nil {
 		return nil, err
 	}
+
+	fmt.Println("4passed")
 
 	essentialSeedSnaps := deviceSeed.EssentialSnaps()
 	seedSnaps, err := deviceSeed.ModeSnaps(mode)
@@ -304,6 +313,8 @@ func importAssertionsFromSeed(st *state.State, deviceSeed seed.Seed) (*asserts.M
 		return nil, err
 	}
 
+	fmt.Println("little bit further")
+
 	// collect and
 	// set device,model from the model assertion
 	commitTo := func(batch *asserts.Batch) error {
@@ -315,9 +326,11 @@ func importAssertionsFromSeed(st *state.State, deviceSeed seed.Seed) (*asserts.M
 		// on classic seeding is optional
 		// set the fallback model
 		err := setClassicFallbackModel(st, device)
+		fmt.Println("little little bit further: ", err)
 		if err != nil {
 			return nil, err
 		}
+
 		return nil, errNothingToDo
 	}
 	if err != nil {
