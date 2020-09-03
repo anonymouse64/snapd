@@ -10,6 +10,8 @@ NESTED_VM=nested-vm
 SSH_PORT=8022
 MON_PORT=8888
 
+NESTED_CUSTOM_MODEL="${NESTED_CUSTOM_MODEL:-}"
+
 NESTED_CUSTOM_AUTO_IMPORT_ASSERTION="${NESTED_CUSTOM_AUTO_IMPORT_ASSERTION:-}"
 
 wait_for_ssh(){
@@ -338,6 +340,10 @@ download_nested_image(){
 }
 
 get_nested_model(){
+    # use custom model if defined
+    if [ -n "$NESTED_CUSTOM_MODEL" ]; then
+        echo "$NESTED_CUSTOM_MODEL"
+    fi
     case "$SPREAD_SYSTEM" in
         ubuntu-16.04-64)
             echo "$TESTSLIB/assertions/nested-amd64.model"
