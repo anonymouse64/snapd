@@ -10,6 +10,8 @@ NESTED_VM=nested-vm
 SSH_PORT=8022
 MON_PORT=8888
 
+NESTED_CUSTOM_AUTO_IMPORT_ASSERTION="${NESTED_CUSTOM_AUTO_IMPORT_ASSERTION:-}"
+
 wait_for_ssh(){
     retry=400
     wait=1
@@ -65,7 +67,14 @@ create_assertions_disk(){
     # mount the partition and copy the files 
     mkdir -p "$WORK_DIR/sys-user-partition"
     mount "/dev/mapper/loop${LOOP_DEV}p1" "$WORK_DIR/sys-user-partition"
-    sudo cp "$TESTSLIB/assertions/auto-import.assert" "$WORK_DIR/sys-user-partition"
+    
+    # use custom assertion if set
+    if [ -n "$NESTED_CUSTOM_AUTO_IMPORT_ASSERTION" ]; then
+        autoImportAssert=$NESTED_CUSTOM_AUTO_IMPORT_ASSERTION
+    else 
+        autoImportAssert="$TESTSLIB/assertions/auto-import.assert"
+    fi
+    sudo cp "$autoImportAssert" "$WORK_DIR/sys-user-partition"
 
     # unmount the partition and the image disk
     sudo umount "$WORK_DIR/sys-user-partition"
