@@ -611,7 +611,7 @@ start_nested_core_vm_unit(){
         # considers removable devices for cold-plug first-boot runs
         # the nec-usb-xhci device is necessary to create the bus we attach the
         # storage to
-        PARAM_ASSERTIONS="-drive if=none,id=stick,format=raw,file=$WORK_DIR/assertions.disk,cache=none,format=raw -device nec-usb-xhci,id=xhci -device usb-storage,bus=xhci.0,removable=true,drive=stick"
+        PARAM_ASSERTIONS="-drive if=none,id=stick,format=raw,file=$WORK_DIR/assertions.disk,cache=none -device nec-usb-xhci,id=xhci -device usb-storage,bus=xhci.0,removable=true,drive=stick"
     fi
     if is_core_20_nested_system; then
         # use a bundle EFI bios by default
