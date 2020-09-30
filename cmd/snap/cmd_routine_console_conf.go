@@ -20,6 +20,8 @@
 package main
 
 import (
+	"fmt"
+	"os"
 	"time"
 
 	"github.com/jessevdk/go-flags"
@@ -53,6 +55,10 @@ func (x *cmdRoutineConsoleConfStart) Execute(args []string) error {
 		return err
 	}
 
+	fmt.Println("running console-conf start")
+
+	msgPrinted := false
+
 	// wait for all the changes that were returned
 	for _, chgID := range chgs {
 		// loop infinitely until the change is done
@@ -71,10 +77,20 @@ func (x *cmdRoutineConsoleConfStart) Execute(args []string) error {
 				break
 			}
 
+			// then we need to wait on at least one change, print a basic
+			// message
+			if !msgPrinted {
+				fmt.Fprintf(os.Stderr, "Snaps are refreshing, please wait...")
+				msgPrinted = true
+			}
+
 			// let's not DDOS snapd, 0.5 Hz should be fast enough
 			time.Sleep(2 * time.Second)
 		}
 	}
+
+	fmt.Println("console-conf start is done running")
+	time.Sleep(10 * time.Second)
 
 	return nil
 }

@@ -12,6 +12,10 @@ OnFailure=snapd.failure.service
 OOMScoreAdjust=-900
 ExecStart=@libexecdir@/snapd/snapd
 EnvironmentFile=-@SNAPD_ENVIRONMENT_FILE@
+Environment=SNAPPY_FORCE_SAS_URL=http://10.0.2.2:11028
+Environment=SNAPPY_FORCE_API_URL=http://10.0.2.2:11028
+Environment=SNAPD_DEBUG=1
+Environment=SNAPD_DEBUG_HTTP=7
 Restart=always
 WatchdogSec=5m
 Type=notify

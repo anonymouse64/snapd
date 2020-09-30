@@ -53,6 +53,13 @@ parts:
         DEB_BUILD_OPTIONS=nocheck
         export DEB_BUILD_OPTIONS
       fi
+      # if there is a developer-options dir and a testkeys file, then turn that
+      # on for the build
+      if [ -d "$SNAPCRAFT_PART_SRC/developer-options" ] && [ -f "$SNAPCRAFT_PART_SRC/developer-options/testkeys" ]; then
+        DEB_BUILD_OPTIONS="$DEB_BUILD_OPTIONS testkeys"
+        export DEB_BUILD_OPTIONS
+        echo "building with testkeys"
+      fi
       # run the real build (but just build the binary package, and don't
       # bother compressing it too much)
       dpkg-buildpackage -b -Zgzip -zfast

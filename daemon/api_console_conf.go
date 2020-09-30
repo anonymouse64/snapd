@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/overlord/auth"
 )
 
@@ -44,6 +45,8 @@ type ConsoleConfStartRoutineResult struct {
 }
 
 func consoleConfStartRoutine(c *Command, r *http.Request, _ *auth.UserState) Response {
+	logger.Debugf("starting console-conf start routine")
+
 	// no body expected, error if we were provided anything
 	defer r.Body.Close()
 	var routineBody interface{}
@@ -69,6 +72,8 @@ func consoleConfStartRoutine(c *Command, r *http.Request, _ *auth.UserState) Res
 	if err != nil {
 		return InternalError(err.Error())
 	}
+
+	logger.Debugf("ensured that auto refreshes are delayed")
 
 	if len(snapAutoRefreshChanges) == 0 {
 		// no changes yet, and we delayed the refresh successfully so
