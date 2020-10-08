@@ -108,9 +108,6 @@ typedef struct SNAP_RUN_BOOT_SELECTION {
      */
     char bootimg_matrix[SNAP_RUN_BOOTIMG_PART_NUM][2][SNAP_NAME_MAX_LEN];
 
-    /** TODO: is this really used from the bootloader? how? seems like a
-     * snapd/gadget/kernel concern
-     */
     /* name of the boot image from kernel snap to be used for extraction
        when not defined or empty, default boot.img will be used */
     char bootimg_file_name[SNAP_NAME_MAX_LEN];
