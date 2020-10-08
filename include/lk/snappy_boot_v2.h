@@ -82,10 +82,10 @@ typedef struct SNAP_RUN_BOOT_SELECTION {
      * kernel revision
      * The following describes how this matrix should be modified at different
      * stages:
-     *  - at image build time:
+     *  - snapd in install mode:
      *    - extracted kernel snap revision name should be filled
      *      into free slot (first row, second row)
-     *  - snapd:
+     *  - snapd in run mode:
      *    - when new kernel snap revision is being installed, snapd cycles
      *      through matrix to find unused 'boot slot' to be used for new kernel
      *      snap revision from free slot, first column represents partition
