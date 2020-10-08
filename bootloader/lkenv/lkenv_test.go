@@ -65,7 +65,7 @@ func unpackTestData(data []byte) (resData []byte, err error) {
 }
 
 func (l *lkenvTestSuite) TestSet(c *C) {
-	env := lkenv.NewEnv(l.envPath)
+	env := lkenv.NewEnv(l.envPath, lkenv.V1)
 	c.Check(env, NotNil)
 
 	env.Set("snap_mode", boot.TryStatus)
@@ -136,7 +136,7 @@ func (l *lkenvTestSuite) TestSaveNoBak(c *C) {
 	err := ioutil.WriteFile(l.envPath, buf, 0644)
 	c.Assert(err, IsNil)
 
-	env := lkenv.NewEnv(l.envPath)
+	env := lkenv.NewEnv(l.envPath, lkenv.V1)
 	c.Check(env, NotNil)
 
 	env.Set("snap_mode", "trying")
@@ -151,7 +151,7 @@ func (l *lkenvTestSuite) TestSaveNoBak(c *C) {
 	err = env.Save()
 	c.Assert(err, IsNil)
 
-	env2 := lkenv.NewEnv(l.envPath)
+	env2 := lkenv.NewEnv(l.envPath, lkenv.V1)
 	err = env2.Load()
 	c.Assert(err, IsNil)
 	c.Check(env2.Get("snap_mode"), Equals, "trying")
@@ -176,7 +176,7 @@ func (l *lkenvTestSuite) TestFailedCRCNoBak(c *C) {
 	err := ioutil.WriteFile(l.envPath, buf, 0644)
 	c.Assert(err, IsNil)
 
-	env := lkenv.NewEnv(l.envPath)
+	env := lkenv.NewEnv(l.envPath, lkenv.V1)
 	c.Check(env, NotNil)
 
 	err = env.Load()
@@ -190,7 +190,7 @@ func (l *lkenvTestSuite) TestFailedCRCFallBack(c *C) {
 	err = ioutil.WriteFile(l.envPathbak, buf, 0644)
 	c.Assert(err, IsNil)
 
-	env := lkenv.NewEnv(l.envPath)
+	env := lkenv.NewEnv(l.envPath, lkenv.V1)
 	c.Check(env, NotNil)
 
 	env.Set("snap_mode", "trying")
@@ -203,7 +203,7 @@ func (l *lkenvTestSuite) TestFailedCRCFallBack(c *C) {
 	err = ioutil.WriteFile(l.envPath, buf, 0644)
 	c.Assert(err, IsNil)
 
-	env2 := lkenv.NewEnv(l.envPath)
+	env2 := lkenv.NewEnv(l.envPath, lkenv.V1)
 	err = env2.Load()
 	c.Assert(err, IsNil)
 	c.Check(env2.Get("snap_mode"), Equals, "trying")
@@ -216,7 +216,7 @@ func (l *lkenvTestSuite) TestGetBootPartition(c *C) {
 	err := ioutil.WriteFile(l.envPath, buf, 0644)
 	c.Assert(err, IsNil)
 
-	env := lkenv.NewEnv(l.envPath)
+	env := lkenv.NewEnv(l.envPath, lkenv.V1)
 	c.Assert(err, IsNil)
 	env.ConfigureBootPartitions("boot_a", "boot_b")
 	// test no boot partition used
@@ -245,7 +245,7 @@ func (l *lkenvTestSuite) TestFindFree_Set_Free_BootPartition(c *C) {
 	err := ioutil.WriteFile(l.envPath, buf, 0644)
 	c.Assert(err, IsNil)
 
-	env := lkenv.NewEnv(l.envPath)
+	env := lkenv.NewEnv(l.envPath, lkenv.V1)
 	c.Assert(err, IsNil)
 	env.ConfigureBootPartitions("boot_a", "boot_b")
 	// test no boot partition used
@@ -314,7 +314,7 @@ func (l *lkenvTestSuite) TestZippedDataSample(c *C) {
 	err = ioutil.WriteFile(l.envPathbak, rawData, 0644)
 	c.Assert(err, IsNil)
 
-	env := lkenv.NewEnv(l.envPath)
+	env := lkenv.NewEnv(l.envPath, lkenv.V1)
 	c.Check(env, NotNil)
 	err = env.Load()
 	c.Assert(err, IsNil)
