@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 
 	"github.com/snapcore/snapd/bootloader/lkenv"
+	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/snap"
 )
@@ -34,6 +35,13 @@ import (
 type lk struct {
 	rootdir       string
 	inRuntimeMode bool
+
+	// role is what bootloader role we are, which also maps to which version of
+	// the underlying lkenv struct we use for bootenv
+	// * RoleSole == uc16 -> v1
+	// * RoleRecovery == uc20 + recovery -> v2 recovery
+	// * RoleRunMode == uc20 + run -> v2 run
+	role Role
 }
 
 // newLk create a new lk bootloader object
@@ -48,7 +56,11 @@ func newLk(rootdir string, opts *Options) Bootloader {
 		//      are very different from runtime vs image-building mode.
 		//
 		// determine mode we are in, runtime or image build
+
+		// TODO: can we get rid of this now that we have roles? seems like no :-/
 		l.inRuntimeMode = !opts.PrepareImageTime
+
+		l.role = opts.Role
 	}
 
 	return l
@@ -67,7 +79,20 @@ func (l *lk) dir() string {
 	// during image building we store environment into file
 	// at runtime environment is written directly into dedicated partition
 	if l.inRuntimeMode {
-		return filepath.Join(l.rootdir, "/dev/disk/by-partlabel/")
+		switch l.role {
+		case RoleSole:
+			return filepath.Join(l.rootdir, "/dev/disk/by-partlabel/")
+		case RoleRecovery, RoleRunMode:
+			// for uc20 roles, RunMode and Recovery, we ignore the root dir
+			// provided and instead use dirs.GlobalRootDir, because for example
+			// in install mode the provided dir will be "/run/mnt/ubuntu-seed",
+			// but our dir we care about is "/dev/disk/by-partlabel" which even
+			// for the recovery case will always live underneath "/" as /dev is
+			// not also mounted on /run/mnt/ubuntu-seed
+			return filepath.Join(dirs.GlobalRootDir, "/dev/disk/by-partlabel/")
+		default:
+			panic("unexpected bootloader role for lk dir")
+		}
 	}
 	return filepath.Join(l.rootdir, "/boot/lk/")
 }
@@ -86,15 +111,30 @@ func (l *lk) envFile() string {
 	// as for dir, we have two scenarios, image building and runtime
 	if l.inRuntimeMode {
 		// TO-DO: this should be eventually fetched from gadget.yaml
-		return filepath.Join(l.dir(), "snapbootsel")
+		switch l.role {
+		case RoleSole, RoleRunMode:
+			// for run mode, see the comment in dir(), we actually use different
+			// dirs for RoleSole and RoleRunMode
+			return filepath.Join(l.dir(), "snapbootsel")
+		case RoleRecovery:
+			// recovery bl env file is different
+			return filepath.Join(l.dir(), "snaprecoverysel")
+		}
 	}
-	return filepath.Join(l.dir(), "snapbootsel.bin")
+
+	switch l.role {
+	case RoleSole, RoleRunMode:
+		return filepath.Join(l.dir(), "snapbootsel.bin")
+	case RoleRecovery:
+		return filepath.Join(l.dir(), "snaprecoverysel.bin")
+	}
+	panic("unknown bootloader role in lk envFile()")
 }
 
 func (l *lk) GetBootVars(names ...string) (map[string]string, error) {
 	out := make(map[string]string)
 
-	env := lkenv.NewEnv(l.envFile())
+	env := l.newenv()
 	if err := env.Load(); err != nil {
 		return nil, err
 	}
@@ -106,8 +146,22 @@ func (l *lk) GetBootVars(names ...string) (map[string]string, error) {
 	return out, nil
 }
 
+func (l *lk) newenv() *lkenv.Env {
+	// check which role we are, it affects which struct is used for the env
+	var version lkenv.Version
+	switch l.role {
+	case RoleSole:
+		version = lkenv.V1
+	case RoleRecovery:
+		version = lkenv.V2Recovery
+	case RoleRunMode:
+		version = lkenv.V2Run
+	}
+	return lkenv.NewEnv(l.envFile(), version)
+}
+
 func (l *lk) SetBootVars(values map[string]string) error {
-	env := lkenv.NewEnv(l.envFile())
+	env := l.newenv()
 	if err := env.Load(); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -130,6 +184,40 @@ func (l *lk) SetBootVars(values map[string]string) error {
 	return nil
 }
 
+func (l *lk) ExtractRecoveryKernelAssets(recoverySystemDir string, sn snap.PlaceInfo, snapf snap.Container) error {
+	env := l.newenv()
+	if err := env.Load(); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	bootPartition, err := env.FindFreeRecoverySystemPartition(recoverySystemDir)
+	if err != nil {
+		return err
+	}
+
+	if l.inRuntimeMode {
+		// error case, we cannot be extracting a recovery kernel and also be
+		// called with !opts.PrepareImageTime
+
+		// TODO:UC20: however this codepath will likely be exercised when we
+		//            support creating new recovery systems
+		return fmt.Errorf("internal error: ExtractRecoveryKernelAssets does not make sense with a runtime lk bootloader")
+	}
+
+	// we are preparing a recovery system, just extract boot image to bootloader
+	// directory
+	logger.Debugf("ExtractKernelAssets handling image prepare")
+	if err := snapf.Unpack(env.GetBootImageName(), l.dir()); err != nil {
+		return fmt.Errorf("cannot open unpacked %s: %v", env.GetBootImageName(), err)
+	}
+
+	if err := env.SetRecoverySystemBootPartition(bootPartition, recoverySystemDir); err != nil {
+		return err
+	}
+
+	return env.Save()
+}
+
 // ExtractKernelAssets extract kernel assets per bootloader specifics
 // lk bootloader requires boot partition to hold valid boot image
 // there are two boot partition available, one holding current bootimage
@@ -141,7 +229,7 @@ func (l *lk) ExtractKernelAssets(s snap.PlaceInfo, snapf snap.Container) error {
 
 	logger.Debugf("ExtractKernelAssets (%s)", blobName)
 
-	env := lkenv.NewEnv(l.envFile())
+	env := l.newenv()
 	if err := env.Load(); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -201,7 +289,7 @@ func (l *lk) ExtractKernelAssets(s snap.PlaceInfo, snapf snap.Container) error {
 func (l *lk) RemoveKernelAssets(s snap.PlaceInfo) error {
 	blobName := s.Filename()
 	logger.Debugf("RemoveKernelAssets (%s)", blobName)
-	env := lkenv.NewEnv(l.envFile())
+	env := l.newenv()
 	if err := env.Load(); err != nil && !os.IsNotExist(err) {
 		return err
 	}
