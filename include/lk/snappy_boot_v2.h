@@ -31,8 +31,11 @@
 #define SNAP_MODE_TRYING "trying"
 #define FACTORY_RESET "factory-reset"
 
-/* partition label where boot select structure is stored */
+/* partition label where run mode boot select structure is stored */
 #define SNAP_BOOTSELECT_PARTITION "snapbootsel"
+
+/* partition label where recovery boot select structure is stored */
+#define SNAP_RECOVERYSELECT_PARTITION "snaprecoverysel"
 
 /* number of available bootimg partitions for run mode, min 2 */
 #define SNAP_RUN_BOOTIMG_PART_NUM 2
