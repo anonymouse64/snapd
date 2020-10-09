@@ -181,6 +181,9 @@ func makeBootable20(model *asserts.Model, rootdir string, bootWith *BootableSet)
 	// ubuntu-seed
 	blVars := map[string]string{
 		"snapd_recovery_system": bootWith.RecoverySystemLabel,
+		// TODO:UC20 should we set this or not? it seems useful to make the
+		//           bootloaders' jobs simpler / easier
+		"snapd_recovery_mode": "install",
 	}
 	if err := bl.SetBootVars(blVars); err != nil {
 		return fmt.Errorf("cannot set recovery environment: %v", err)
