@@ -457,6 +457,10 @@ func generateMountsCommonInstallRecover(mst *initramfsMountsState) error {
 
 func generateMountsModeRun(mst *initramfsMountsState) error {
 	// 1. mount ubuntu-boot
+	// TODO:UC20: this needs refactoring to handle the lk case where we won't
+	//            necessarily have an ubuntu-boot partition and instead will
+	//            have snapbootsel, etc. to figure out which disk we should use
+	//            to mount other things
 	if err := mountPartitionMatchingKernelDisk(boot.InitramfsUbuntuBootDir, "ubuntu-boot"); err != nil {
 		return err
 	}
