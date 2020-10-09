@@ -44,10 +44,7 @@ type lk struct {
 	role Role
 }
 
-// newLk create a new lk bootloader object
-func newLk(rootdir string, opts *Options) Bootloader {
-	l := &lk{rootdir: rootdir}
-
+func (l *lk) processOpts(opts *Options) {
 	if opts != nil {
 		// XXX: in the long run we want this to go away, we probably add
 		//      something like "boot.PrepareImage()" and add an (optional)
@@ -62,6 +59,13 @@ func newLk(rootdir string, opts *Options) Bootloader {
 
 		l.role = opts.Role
 	}
+}
+
+// newLk create a new lk bootloader object
+func newLk(rootdir string, opts *Options) Bootloader {
+	l := &lk{rootdir: rootdir}
+
+	l.processOpts(opts)
 
 	return l
 }
@@ -98,6 +102,8 @@ func (l *lk) dir() string {
 }
 
 func (l *lk) InstallBootConfig(gadgetDir string, opts *Options) (bool, error) {
+	// make sure that the opts are put into the object
+	l.processOpts(opts)
 	gadgetFile := filepath.Join(gadgetDir, l.Name()+".conf")
 	systemFile := l.ConfigFile()
 	return genericInstallBootConfig(gadgetFile, systemFile)
