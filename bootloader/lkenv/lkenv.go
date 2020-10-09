@@ -112,6 +112,7 @@ func NewEnv(path string, version Version) *Env {
 	e := &Env{
 		path:    path,
 		pathbak: path + "bak",
+		version: version,
 	}
 
 	switch version {
@@ -521,7 +522,6 @@ func (l *Env) SetBootPartition(bootpart, kernel string) error {
 	}
 	return fmt.Errorf("cannot find defined [%s] boot image partition", bootpart)
 }
-
 
 // RemoveKernelRevisionFromBootPartition removes from the boot image matrix the
 // first found boot partition that contains a reference to the given kernel
