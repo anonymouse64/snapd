@@ -217,7 +217,7 @@ func (l *lk) ExtractRecoveryKernelAssets(recoverySystemDir string, sn snap.Place
 		return fmt.Errorf("cannot open unpacked %s: %v", env.GetBootImageName(), err)
 	}
 
-	if err := env.SetRecoverySystemBootPartition(bootPartition, recoverySystemDir); err != nil {
+	if err := env.SetRecoverySystemBootPartition(bootPartition, filepath.Base(recoverySystemDir)); err != nil {
 		return err
 	}
 
