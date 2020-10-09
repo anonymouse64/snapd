@@ -212,7 +212,7 @@ func (l *lk) ExtractRecoveryKernelAssets(recoverySystemDir string, sn snap.Place
 
 	// we are preparing a recovery system, just extract boot image to bootloader
 	// directory
-	logger.Debugf("ExtractKernelAssets handling image prepare")
+	logger.Debugf("ExtractRecoveryKernelAssets handling image prepare")
 	if err := snapf.Unpack(env.GetBootImageName(), l.dir()); err != nil {
 		return fmt.Errorf("cannot open unpacked %s: %v", env.GetBootImageName(), err)
 	}
