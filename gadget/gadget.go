@@ -51,8 +51,9 @@ const (
 	SystemData = "system-data"
 	SystemSeed = "system-seed"
 
-	bootImage  = "system-boot-image"
-	bootSelect = "system-boot-select"
+	bootImage          = "system-boot-image"
+	bootSelect         = "system-boot-select"
+	recoveryBootSelect = "system-recovery-select"
 
 	// implicitSystemDataLabel is the implicit filesystem label of structure
 	// of system-data role
@@ -124,7 +125,7 @@ type VolumeStructure struct {
 	Type string `yaml:"type"`
 	// Role describes the role of given structure, can be one of
 	// 'mbr', 'system-data', 'system-boot', 'system-boot-image',
-	// 'system-boot-select'. Structures of type 'mbr', must have a
+	// 'system-boot-select' or 'system-recovery-select'. Structures of type 'mbr', must have a
 	// size of 446 bytes and must start at 0 offset.
 	Role string `yaml:"role"`
 	// ID is the GPT partition ID
@@ -736,7 +737,7 @@ func validateRole(vs *VolumeStructure, vol *Volume) error {
 		if vs.Filesystem != "" && vs.Filesystem != "none" {
 			return errors.New("mbr structures must not specify a file system")
 		}
-	case SystemBoot, bootImage, bootSelect, "":
+	case SystemBoot, bootImage, bootSelect, recoveryBootSelect, "":
 		// noop
 	case legacyBootImage, legacyBootSelect:
 		// noop
