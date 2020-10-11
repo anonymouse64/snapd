@@ -229,6 +229,16 @@ volumes:
         size: 25165824
         role: system-boot-image
         type: 27
+      - name: RECOVERYIMG1
+        size: 25165824
+        role: system-recovery-image
+        type: 27
+        content:
+          - image: boot.img
+      - name: RECOVERYIMG2
+        size: 25165824
+        role: system-recovery-image
+        type: 27
       - name: snapbootsel
         size: 131072
         role: system-boot-select
@@ -241,6 +251,18 @@ volumes:
         type: B2
         content:
           - image: snapbootsel.bin
+      - name: snaprecoverysel
+        size: 131072
+        role: system-recovery-select
+        type: B2
+        content:
+          - image: snaprecoverysel.bin
+      - name: snaprecoveryselbak
+        size: 131072
+        role: system-recovery-select
+        type: B2
+        content:
+          - image: snaprecoverysel.bin
       - name: writable
         type: 83
         filesystem: ext4
