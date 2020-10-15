@@ -207,22 +207,22 @@ func (l *lk) ExtractRecoveryKernelAssets(recoverySystemDir string, sn snap.Place
 		return err
 	}
 
+	// inRuntimeMode we extract bootimg to free recovery boot partition
 	if l.inRuntimeMode {
-		// error case, we cannot be extracting a recovery kernel and also be
-		// called with !opts.PrepareImageTime
-
-		// TODO:UC20: however this codepath will likely be exercised when we
-		//            support creating new recovery systems
-		return fmt.Errorf("internal error: ExtractRecoveryKernelAssets does not make sense with a runtime lk bootloader")
+		// this is live system, extracted bootimg needs to be flashed to
+		// free bootimg partition and env has to be updated with
+		// new kernel snap to bootimg partition mapping
+		if err := l.extractBootImageToPartition(bootPartition, env, snapf); err != nil {
+			return err
+		}
+	} else {
+		// we are preparing a recovery system, just extract boot image to bootloader
+		// directory
+		logger.Debugf("ExtractKernelAssets handling image prepare")
+		if err := snapf.Unpack(env.GetBootImageName(), l.dir()); err != nil {
+			return fmt.Errorf("cannot open unpacked %s: %v", env.GetBootImageName(), err)
+		}
 	}
-
-	// we are preparing a recovery system, just extract boot image to bootloader
-	// directory
-	logger.Debugf("ExtractRecoveryKernelAssets handling image prepare")
-	if err := snapf.Unpack(env.GetBootImageName(), l.dir()); err != nil {
-		return fmt.Errorf("cannot open unpacked %s: %v", env.GetBootImageName(), err)
-	}
-
 	if err := env.SetRecoverySystemBootPartition(bootPartition, recoverySystem); err != nil {
 		return err
 	}
