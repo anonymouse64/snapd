@@ -197,7 +197,12 @@ func (l *lk) ExtractRecoveryKernelAssets(recoverySystemDir string, sn snap.Place
 		return err
 	}
 
-	bootPartition, err := env.FindFreeRecoverySystemPartition(recoverySystemDir)
+	// recoverySystemDir includes leading dir where recovery systems are stored
+	// this information is not relevant to lk, and it breaks mapping of
+	// Snapd_recovery_system value to correct recovery partition
+	recoverySystem := filepath.Base(recoverySystemDir)
+
+	bootPartition, err := env.FindFreeRecoverySystemPartition(recoverySystem)
 	if err != nil {
 		return err
 	}
@@ -218,7 +223,7 @@ func (l *lk) ExtractRecoveryKernelAssets(recoverySystemDir string, sn snap.Place
 		return fmt.Errorf("cannot open unpacked %s: %v", env.GetBootImageName(), err)
 	}
 
-	if err := env.SetRecoverySystemBootPartition(bootPartition, filepath.Base(recoverySystemDir)); err != nil {
+	if err := env.SetRecoverySystemBootPartition(bootPartition, recoverySystem); err != nil {
 		return err
 	}
 
