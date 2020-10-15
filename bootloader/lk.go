@@ -191,6 +191,7 @@ func (l *lk) SetBootVars(values map[string]string) error {
 }
 
 func (l *lk) ExtractRecoveryKernelAssets(recoverySystemDir string, sn snap.PlaceInfo, snapf snap.Container) error {
+	logger.Debugf("ExtractRecoveryKernelAssets (%s)", recoverySystemDir)
 	env := l.newenv()
 	if err := env.Load(); err != nil && !os.IsNotExist(err) {
 		return err
