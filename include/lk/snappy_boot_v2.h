@@ -29,7 +29,9 @@
 #define HASH_LENGTH (32)
 #define SNAP_MODE_TRY "try"
 #define SNAP_MODE_TRYING "trying"
-#define FACTORY_RESET "factory-reset"
+#define SNAP_RECOVERY_MODE_RUN "run"
+#define SNAP_RECOVERY_MODE_INSTALL "install"
+#define SNAP_RECOVERY_MODE_RECOVER "recover"
 
 /* partition label where run mode boot select structure is stored */
 #define SNAP_BOOTSELECT_PARTITION "snapbootsel"

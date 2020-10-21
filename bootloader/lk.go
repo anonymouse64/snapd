@@ -191,33 +191,39 @@ func (l *lk) SetBootVars(values map[string]string) error {
 }
 
 func (l *lk) ExtractRecoveryKernelAssets(recoverySystemDir string, sn snap.PlaceInfo, snapf snap.Container) error {
+	logger.Debugf("ExtractRecoveryKernelAssets (%s)", recoverySystemDir)
 	env := l.newenv()
 	if err := env.Load(); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
-	bootPartition, err := env.FindFreeRecoverySystemPartition(recoverySystemDir)
+	// recoverySystemDir includes leading dir where recovery systems are stored
+	// this information is not relevant to lk, and it breaks mapping of
+	// Snapd_recovery_system value to correct recovery partition
+	recoverySystem := filepath.Base(recoverySystemDir)
+
+	bootPartition, err := env.FindFreeRecoverySystemPartition(recoverySystem)
 	if err != nil {
 		return err
 	}
 
+	// inRuntimeMode we extract bootimg to free recovery boot partition
 	if l.inRuntimeMode {
-		// error case, we cannot be extracting a recovery kernel and also be
-		// called with !opts.PrepareImageTime
-
-		// TODO:UC20: however this codepath will likely be exercised when we
-		//            support creating new recovery systems
-		return fmt.Errorf("internal error: ExtractRecoveryKernelAssets does not make sense with a runtime lk bootloader")
+		// this is live system, extracted bootimg needs to be flashed to
+		// free bootimg partition and env has to be updated with
+		// new kernel snap to bootimg partition mapping
+		if err := l.extractBootImageToPartition(bootPartition, env, snapf); err != nil {
+			return err
+		}
+	} else {
+		// we are preparing a recovery system, just extract boot image to bootloader
+		// directory
+		logger.Debugf("ExtractKernelAssets handling image prepare")
+		if err := snapf.Unpack(env.GetBootImageName(), l.dir()); err != nil {
+			return fmt.Errorf("cannot open unpacked %s: %v", env.GetBootImageName(), err)
+		}
 	}
-
-	// we are preparing a recovery system, just extract boot image to bootloader
-	// directory
-	logger.Debugf("ExtractRecoveryKernelAssets handling image prepare")
-	if err := snapf.Unpack(env.GetBootImageName(), l.dir()); err != nil {
-		return fmt.Errorf("cannot open unpacked %s: %v", env.GetBootImageName(), err)
-	}
-
-	if err := env.SetRecoverySystemBootPartition(bootPartition, filepath.Base(recoverySystemDir)); err != nil {
+	if err := env.SetRecoverySystemBootPartition(bootPartition, recoverySystem); err != nil {
 		return err
 	}
 
@@ -246,36 +252,10 @@ func (l *lk) ExtractKernelAssets(s snap.PlaceInfo, snapf snap.Container) error {
 	}
 
 	if l.inRuntimeMode {
-		logger.Debugf("ExtractKernelAssets handling run time usecase")
 		// this is live system, extracted bootimg needs to be flashed to
 		// free bootimg partition and env has to be updated with
 		// new kernel snap to bootimg partition mapping
-		tmpdir, err := ioutil.TempDir("", "bootimg")
-		if err != nil {
-			return fmt.Errorf("cannot create temp directory: %v", err)
-		}
-		defer os.RemoveAll(tmpdir)
-
-		bootImg := env.GetBootImageName()
-		if err := snapf.Unpack(bootImg, tmpdir); err != nil {
-			return fmt.Errorf("cannot unpack %s: %v", bootImg, err)
-		}
-		// write boot.img to free boot partition
-		bootimgName := filepath.Join(tmpdir, bootImg)
-		bif, err := os.Open(bootimgName)
-		if err != nil {
-			return fmt.Errorf("cannot open unpacked %s: %v", bootImg, err)
-		}
-		defer bif.Close()
-		bpart := filepath.Join(l.dir(), bootPartition)
-
-		bpf, err := os.OpenFile(bpart, os.O_WRONLY, 0660)
-		if err != nil {
-			return fmt.Errorf("cannot open boot partition [%s]: %v", bpart, err)
-		}
-		defer bpf.Close()
-
-		if _, err := io.Copy(bpf, bif); err != nil {
+		if err := l.extractBootImageToPartition(bootPartition, env, snapf); err != nil {
 			return err
 		}
 	} else {
@@ -304,6 +284,41 @@ func (l *lk) RemoveKernelAssets(s snap.PlaceInfo) error {
 		// found and removed the revision from the bootimg matrix, need to
 		// update the env to persist the change
 		return env.Save()
+	}
+	return nil
+}
+
+// extractBootImageToPartition helper function to extract kernel bootimage
+// to passed boot partition
+func (l *lk) extractBootImageToPartition(bootPartition string, env *lkenv.Env, snapf snap.Container) error {
+	logger.Debugf("extractBootImageToPartition (%s)", bootPartition)
+	tmpdir, err := ioutil.TempDir("", "bootimg")
+	if err != nil {
+		return fmt.Errorf("cannot create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tmpdir)
+
+	bootImg := env.GetBootImageName()
+	if err := snapf.Unpack(bootImg, tmpdir); err != nil {
+		return fmt.Errorf("cannot unpack %s: %v", bootImg, err)
+	}
+	// write boot.img to free boot partition
+	bootimgName := filepath.Join(tmpdir, bootImg)
+	bif, err := os.Open(bootimgName)
+	if err != nil {
+		return fmt.Errorf("cannot open unpacked %s: %v", bootImg, err)
+	}
+	defer bif.Close()
+	bpart := filepath.Join(l.dir(), bootPartition)
+
+	bpf, err := os.OpenFile(bpart, os.O_WRONLY, 0660)
+	if err != nil {
+		return fmt.Errorf("cannot open boot partition [%s]: %v", bpart, err)
+	}
+	defer bpf.Close()
+
+	if _, err := io.Copy(bpf, bif); err != nil {
+		return err
 	}
 	return nil
 }
