@@ -974,7 +974,52 @@ func generateMountsModeRecover(mst *initramfsMountsState) error {
 		return err
 	}
 
-	// 3.1 write out degraded.json if we ended up falling back somewhere
+	// 4. final step: copy the auth data and network config from
+	//    the real ubuntu-data dir to the ephemeral ubuntu-data
+	//    dir, write the modeenv to the tmpfs data, and disable
+	//    cloud-init in recover mode
+
+	// if we have the host location, then we were able to successfully mount
+	// ubuntu-data, and as such we can proceed with copying files from there
+	// onto the tmpfs
+	// Proceed only if we trust ubuntu-data to be paired with ubuntu-save
+	needsDefaultData := false
+	if machine.trustData() {
+		// don't error on any of these cases - instead fallback to doing
+		// degraded mode, but ensure that safe defaults are also copied on top
+		// of whatever else was copied
+		if err := copyUbuntuDataAuth(boot.InitramfsHostUbuntuDataDir, boot.InitramfsDataDir); err != nil {
+			needsDefaultData = true
+			// note that adding an error to the degraded state log will make
+			// degraded() return true
+			machine.degradedState.LogErrorf("cannot copy host authentication data: %v", err)
+		}
+		if err := copyNetworkConfig(boot.InitramfsHostUbuntuDataDir, boot.InitramfsDataDir); err != nil {
+			needsDefaultData = true
+			machine.degradedState.LogErrorf("cannot copy host networking configuration: %v", err)
+		}
+		if err := copyUbuntuDataMisc(boot.InitramfsHostUbuntuDataDir, boot.InitramfsDataDir); err != nil {
+			needsDefaultData = true
+			machine.degradedState.LogErrorf("cannot copy miscellaneous other host data: %v", err)
+		}
+	} else {
+		// we don't trust data so don't copy anything off it
+		needsDefaultData = true
+	}
+
+	if needsDefaultData {
+		// we don't have ubuntu-data host mountpoint (or we don't trust it), so
+		// we should setup safe defaults for i.e. console-conf in the running
+		// image to block attackers from accessing the system - just because we
+		// can't access ubuntu-data doesn't mean that attackers wouldn't be able
+		// to if they could login
+
+		if err := copySafeDefaultData(boot.InitramfsHostUbuntuDataDir); err != nil {
+			return err
+		}
+	}
+
+	// 4.1 write out degraded.json if we ended up falling back somewhere
 	if machine.degraded() {
 		b, err := json.Marshal(machine.degradedState)
 		if err != nil {
@@ -986,40 +1031,7 @@ func generateMountsModeRecover(mst *initramfsMountsState) error {
 		}
 
 		// leave the information about degraded state at an ephemeral location
-		if err := ioutil.WriteFile(filepath.Join(dirs.SnapBootstrapRunDir, "degraded.json"), b, 0644); err != nil {
-			return err
-		}
-	}
-
-	// 4. final step: copy the auth data and network config from
-	//    the real ubuntu-data dir to the ephemeral ubuntu-data
-	//    dir, write the modeenv to the tmpfs data, and disable
-	//    cloud-init in recover mode
-
-	// if we have the host location, then we were able to successfully mount
-	// ubuntu-data, and as such we can proceed with copying files from there
-	// onto the tmpfs
-	// Proceed only if we trust ubuntu-data to be paired with ubuntu-save
-	if machine.trustData() {
-		// TODO: erroring here should fallback to copySafeDefaultData and
-		// proceed on with degraded mode anyways
-		if err := copyUbuntuDataAuth(boot.InitramfsHostUbuntuDataDir, boot.InitramfsDataDir); err != nil {
-			return err
-		}
-		if err := copyNetworkConfig(boot.InitramfsHostUbuntuDataDir, boot.InitramfsDataDir); err != nil {
-			return err
-		}
-		if err := copyUbuntuDataMisc(boot.InitramfsHostUbuntuDataDir, boot.InitramfsDataDir); err != nil {
-			return err
-		}
-	} else {
-		// we don't have ubuntu-data host mountpoint, so we should setup safe
-		// defaults for i.e. console-conf in the running image to block
-		// attackers from accessing the system - just because we can't access
-		// ubuntu-data doesn't mean that attackers wouldn't be able to if they
-		// could login
-
-		if err := copySafeDefaultData(boot.InitramfsHostUbuntuDataDir); err != nil {
+		if err = ioutil.WriteFile(filepath.Join(dirs.SnapBootstrapRunDir, "degraded.json"), b, 0644); err != nil {
 			return err
 		}
 	}
