@@ -709,7 +709,7 @@ func (m *recoverModeStateMachine) setUnlockStateWithFallbackKey(partName string,
 	return nil
 }
 
-func newrecoverModeStateMachine(model *asserts.Model, disk disks.Disk) *recoverModeStateMachine {
+func newRecoverModeStateMachine(model *asserts.Model, disk disks.Disk) *recoverModeStateMachine {
 	m := &recoverModeStateMachine{
 		model: model,
 		disk:  disk,
@@ -1027,7 +1027,7 @@ func generateMountsModeRecover(mst *initramfsMountsState) error {
 		}()
 
 		// first state to execute is to unlock ubuntu-data with the run key
-		machine = newrecoverModeStateMachine(model, disk)
+		machine = newRecoverModeStateMachine(model, disk)
 		for {
 			finished, err := machine.execute()
 			// TODO: consider whether certain errors are fatal or not
