@@ -29,12 +29,18 @@ import (
 	"github.com/snapcore/snapd/bootloader/lkenv"
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/logger"
+	"github.com/snapcore/snapd/osutil/disks"
 	"github.com/snapcore/snapd/snap"
+	"github.com/snapcore/snapd/strutil"
 )
 
 type lk struct {
 	rootdir       string
 	inRuntimeMode bool
+
+	// blDisk is what disk the bootloader informed us to use to look for the
+	// bootloader structure partitions
+	blDisk disks.Disk
 
 	// role is what bootloader role we are, which also maps to which version of
 	// the underlying lkenv struct we use for bootenv
@@ -85,19 +91,20 @@ func (l *lk) dir() string {
 	if l.inRuntimeMode {
 		switch l.role {
 		case RoleSole:
+			// TODO: this should be adjusted to use the kernel cmdline parameter
+			//       for the disk that the bootloader says to find the partition
+			//       on, since like the UC20 case
 			return filepath.Join(l.rootdir, "/dev/disk/by-partlabel/")
 		case RoleRecovery, RoleRunMode:
-			// for uc20 roles, RunMode and Recovery, we ignore the root dir
-			// provided and instead use dirs.GlobalRootDir, because for example
-			// in install mode the provided dir will be "/run/mnt/ubuntu-seed",
-			// but our dir we care about is "/dev/disk/by-partlabel" which even
-			// for the recovery case will always live underneath "/" as /dev is
-			// not also mounted on /run/mnt/ubuntu-seed
-			return filepath.Join(dirs.GlobalRootDir, "/dev/disk/by-partlabel/")
+			panic("shouldn't be using dir() for uc20 runtime modes!")
 		default:
 			panic("unexpected bootloader role for lk dir")
 		}
 	}
+
+	// if not in runtime mode, then use rootdir and look for /boot/lk/ this is
+	// only used in prepare-image time where the binary files exist extracted
+	// from the gadget
 	return filepath.Join(l.rootdir, "/boot/lk/")
 }
 
@@ -113,18 +120,65 @@ func (l *lk) ConfigFile() string {
 	return l.envFile()
 }
 
+// envFileForPartName returns the environment file in /dev for the partition
+// name, which will always be a partition on the disk given by
+// the kernel command line parameter "snapd_lk_boot_disk" set by the bootloader.
+func (l *lk) envFileForPartName(partName string) (string, error) {
+	if l.blDisk == nil {
+		// for security, we want to restrict our search for the partition
+		// that the binary structure exists on to only the disk that the
+		// bootloader tells us to search on - it uses a kernel cmdline
+		// parameter "snapd_lk_boot_disk"
+		kernelCmdlineParams, err := strutil.KernelCommandLineKeyValuePairs(filepath.Join(dirs.GlobalRootDir, "/proc/cmdline"))
+		if err != nil {
+			panic(fmt.Sprintf("you should probably make ConfigFile() return an error instead of panicing on this: %v", err))
+		}
+		blDiskName := kernelCmdlineParams["snapd_lk_boot_disk"]
+		if blDiskName == "" {
+			panic("you should probably make ConfigFile() return an error instead of panicing on this: kernel param snapd_lk_boot_disk is missing or empty")
+		}
+
+		disk, err := disks.DiskFromName(blDiskName)
+		if err != nil {
+			panic(fmt.Sprintf("you should probably make ConfigFile() return an error instead of panicing on this: %v", fmt.Errorf("cannot find disk from bootloader supplied disk name %q: %v", blDiskName, err)))
+		}
+
+		l.blDisk = disk
+	}
+
+	partitionUUID, err := l.blDisk.FindMatchingPartitionUUID(partName)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(l.rootdir, "/dev/disk/by-partuuid", partitionUUID), nil
+}
+
 func (l *lk) envFile() string {
 	// as for dir, we have two scenarios, image building and runtime
 	if l.inRuntimeMode {
 		// TO-DO: this should be eventually fetched from gadget.yaml
 		switch l.role {
-		case RoleSole, RoleRunMode:
-			// for run mode, see the comment in dir(), we actually use different
-			// dirs for RoleSole and RoleRunMode
+		case RoleSole:
+			// see TODO: in l.dir(), this should eventually also be using
+			// envFileForPartName() too
 			return filepath.Join(l.dir(), "snapbootsel")
+		case RoleRunMode:
+			envFile, err := l.envFileForPartName("snapbootsel")
+			if err != nil {
+				// meh we can't return errors from ConfigFile() or newenv() so
+				// we just panic here sorry folks
+				panic(fmt.Sprintf("you should probably make ConfigFile() or newenv() return an error instead of panicing on this: %v", err))
+			}
+			return envFile
 		case RoleRecovery:
 			// recovery bl env file is different
-			return filepath.Join(l.dir(), "snaprecoverysel")
+			envFile, err := l.envFileForPartName("snaprecoverysel")
+			if err != nil {
+				// meh we can't return errors from ConfigFile() or newenv() so
+				// we just panic here sorry folks
+				panic(fmt.Sprintf("you should probably make ConfigFile() return an error instead of panicing on this: %v", err))
+			}
+			return envFile
 		}
 	}
 
@@ -267,7 +321,10 @@ func (l *lk) ExtractKernelAssets(s snap.PlaceInfo, snapf snap.Container) error {
 			return fmt.Errorf("cannot open unpacked %s: %v", bootImg, err)
 		}
 		defer bif.Close()
-		bpart := filepath.Join(l.dir(), bootPartition)
+		bpart, err := l.envFileForPartName(bootPartition)
+		if err != nil {
+			return err
+		}
 
 		bpf, err := os.OpenFile(bpart, os.O_WRONLY, 0660)
 		if err != nil {
