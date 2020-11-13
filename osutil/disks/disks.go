@@ -145,6 +145,30 @@ func parseUdevProperties(r io.Reader) (map[string]string, error) {
 	return m, scanner.Err()
 }
 
+// DiskFromName finds a matching Disk using the specified name, such as vda, or
+// mmcblk0, etc.
+func DiskFromName(name string) (Disk, error) {
+	// query for the disk props using udev
+	props, err := udevProperties(name)
+	if err != nil {
+		return nil, err
+	}
+
+	major, err := strconv.Atoi(props["MAJOR"])
+	if err != nil {
+		return nil, fmt.Errorf("cannot find disk with name %q: malformed udev output", name)
+	}
+	minor, err := strconv.Atoi(props["MINOR"])
+	if err != nil {
+		return nil, fmt.Errorf("cannot find disk with name %q: malformed udev output", name)
+	}
+
+	return &disk{
+		major: major,
+		minor: minor,
+	}, nil
+}
+
 // DiskFromMountPoint finds a matching Disk for the specified mount point.
 func DiskFromMountPoint(mountpoint string, opts *Options) (Disk, error) {
 	// call the unexported version that may be mocked by tests
