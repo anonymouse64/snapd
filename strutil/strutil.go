@@ -20,7 +20,10 @@
 package strutil
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
+	"io/ioutil"
 	"sort"
 	"strconv"
 	"strings"
@@ -245,4 +248,31 @@ func ElliptLeft(str string, n int) string {
 	}
 
 	return "…" + string(rstr[len(rstr)-n+1:])
+}
+
+// KernelCommandLineKeyValuePairs returns a map of all the kernel command line
+// parameters that are of the form key=...
+// TODO: this is a silly place to put this, put it somewhere nicer
+func KernelCommandLineKeyValuePairs(cmdlineFile string) (map[string]string, error) {
+	cmdline, err := ioutil.ReadFile(cmdlineFile)
+	if err != nil {
+		return nil, err
+	}
+
+	scanner := bufio.NewScanner(bytes.NewBuffer(cmdline))
+	scanner.Split(bufio.ScanWords)
+	m := make(map[string]string, 0)
+
+	for scanner.Scan() {
+		w := scanner.Text()
+		if strings.Contains(w, "=") {
+			pair := strings.SplitN(w, "=", 2)
+			// this has the side-effect that later keys override earlier ones
+			m[pair[0]] = pair[1]
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
