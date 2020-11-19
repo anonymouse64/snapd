@@ -184,7 +184,7 @@ func TrustedAssetsInstallObserverForModel(model *asserts.Model, gadgetDir string
 	}
 	// TODO:UC20: clarify use of empty rootdir when getting the lists of
 	// managed and trusted assets
-	runBl, runTrusted, runManaged, err := gadgetMaybeTrustedBootloaderAndAssets(gadgetDir, "",
+	runBl, runTrusted, runManaged, err := gadgetMaybeTrustedBootloaderAndAssets(gadgetDir, "", model,
 		&bootloader.Options{
 			Role:        bootloader.RoleRunMode,
 			NoSlashBoot: true,
@@ -193,7 +193,7 @@ func TrustedAssetsInstallObserverForModel(model *asserts.Model, gadgetDir string
 		return nil, err
 	}
 	// and the recovery bootloader, seed is mounted during install
-	seedBl, seedTrusted, _, err := gadgetMaybeTrustedBootloaderAndAssets(gadgetDir, InitramfsUbuntuSeedDir,
+	seedBl, seedTrusted, _, err := gadgetMaybeTrustedBootloaderAndAssets(gadgetDir, InitramfsUbuntuSeedDir, model,
 		&bootloader.Options{
 			Role: bootloader.RoleRecovery,
 		})
@@ -358,7 +358,7 @@ func TrustedAssetsUpdateObserverForModel(model *asserts.Model, gadgetDir string)
 	trackTrustedAssets := hasSealedKeys(dirs.GlobalRootDir)
 
 	// see what we need to observe for the run bootloader
-	runBl, runTrusted, runManaged, err := gadgetMaybeTrustedBootloaderAndAssets(gadgetDir, InitramfsUbuntuBootDir,
+	runBl, runTrusted, runManaged, err := gadgetMaybeTrustedBootloaderAndAssets(gadgetDir, InitramfsUbuntuBootDir, model,
 		&bootloader.Options{
 			Role:        bootloader.RoleRunMode,
 			NoSlashBoot: true,
@@ -368,7 +368,7 @@ func TrustedAssetsUpdateObserverForModel(model *asserts.Model, gadgetDir string)
 	}
 
 	// and the recovery bootloader
-	seedBl, seedTrusted, seedManaged, err := gadgetMaybeTrustedBootloaderAndAssets(gadgetDir, InitramfsUbuntuSeedDir,
+	seedBl, seedTrusted, seedManaged, err := gadgetMaybeTrustedBootloaderAndAssets(gadgetDir, InitramfsUbuntuSeedDir, model,
 		&bootloader.Options{
 			Role: bootloader.RoleRecovery,
 		})
@@ -443,8 +443,8 @@ func findMaybeTrustedBootloaderAndAssets(rootDir string, opts *bootloader.Option
 	return foundBl, trustedAssets, err
 }
 
-func gadgetMaybeTrustedBootloaderAndAssets(gadgetDir, rootDir string, opts *bootloader.Options) (foundBl bootloader.Bootloader, trustedAssets, managedAssets []string, err error) {
-	foundBl, err = bootloader.ForGadget(gadgetDir, rootDir, opts)
+func gadgetMaybeTrustedBootloaderAndAssets(gadgetDir, rootDir string, model *asserts.Model, opts *bootloader.Options) (foundBl bootloader.Bootloader, trustedAssets, managedAssets []string, err error) {
+	foundBl, err = bootloader.ForGadget(gadgetDir, rootDir, model, opts)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("cannot find bootloader: %v", err)
 	}

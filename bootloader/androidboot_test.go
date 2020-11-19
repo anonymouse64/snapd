@@ -65,7 +65,8 @@ func (s *androidBootTestSuite) TestNewAndroidboot(c *C) {
 }
 
 func (s *androidBootTestSuite) TestSetGetBootVar(c *C) {
-	a := bootloader.NewAndroidBoot(s.rootdir)
+	a, err := bootloader.NewAndroidBoot(s.rootdir)
+	c.Assert(err, IsNil)
 	bootVars := map[string]string{"snap_mode": boot.TryStatus}
 	a.SetBootVars(bootVars)
 
@@ -76,7 +77,8 @@ func (s *androidBootTestSuite) TestSetGetBootVar(c *C) {
 }
 
 func (s *androidBootTestSuite) TestExtractKernelAssetsNoUnpacksKernel(c *C) {
-	a := bootloader.NewAndroidBoot(s.rootdir)
+	a, err := bootloader.NewAndroidBoot(s.rootdir)
+	c.Assert(err, IsNil)
 
 	c.Assert(a, NotNil)
 

@@ -25,8 +25,11 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/snapcore/snapd/asserts"
 	"github.com/snapcore/snapd/bootloader/assets"
 	"github.com/snapcore/snapd/dirs"
+	"github.com/snapcore/snapd/gadget"
+	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/snap"
 )
@@ -34,6 +37,10 @@ import (
 var (
 	// ErrBootloader is returned if the bootloader can not be determined.
 	ErrBootloader = errors.New("cannot determine bootloader")
+
+	// ErrBootloaderNotFound is returned if a specific bootloader was not
+	// installed on the system.
+	ErrBootloaderNotFound = errors.New("bootloader not installed on system")
 
 	// ErrNoTryKernelRef is returned if the bootloader finds no enabled
 	// try-kernel.
@@ -202,6 +209,22 @@ type TrustedAssetsBootloader interface {
 	BootChain(runBl Bootloader, kernelPath string) ([]BootFile, error)
 }
 
+func bootloaderOnlyIfConfigFileExists(bl Bootloader, opts *Options) (Bootloader, error) {
+	if opts == nil {
+		opts = &Options{}
+	}
+	if osutil.FileExists(bl.ConfigFile()) {
+		return bl, nil
+	}
+	// allow creating the bootloader at prepare-image time if the config file
+	// doesn't exist, this is to support ForGadget which creates the bootloader
+	// at image build time before the config file has been extracted
+	if opts.PrepareImageTime {
+		return bl, nil
+	}
+	return nil, ErrBootloaderNotFound
+}
+
 func genericInstallBootConfig(gadgetFile, systemFile string) error {
 	if err := os.MkdirAll(filepath.Dir(systemFile), 0755); err != nil {
 		return err
@@ -249,13 +272,13 @@ func genericUpdateBootConfigFromAssets(systemFile string, assetName string) (upd
 
 // InstallBootConfig installs the bootloader config from the gadget
 // snap dir into the right place.
-func InstallBootConfig(gadgetDir, rootDir string, opts *Options) error {
+func InstallBootConfig(gadgetDir, rootDir string, model *asserts.Model, opts *Options) error {
 	if err := opts.validate(); err != nil {
 		return err
 	}
-	bl, err := ForGadget(gadgetDir, rootDir, opts)
+	bl, err := ForGadget(gadgetDir, rootDir, model, opts)
 	if err != nil {
-		return fmt.Errorf("cannot find boot config in %q", gadgetDir)
+		return fmt.Errorf("cannot find boot config in %q: %v", gadgetDir, err)
 	}
 	return bl.InstallBootConfig(gadgetDir, opts)
 }
@@ -270,6 +293,14 @@ var (
 		newGrub,
 		newAndroidBoot,
 		newLk,
+	}
+
+	// bootloaderByName is a map of the bootloader name to their constructor
+	bootloaderByName = map[string]bootloaderNewFunc{
+		"lk":          newLk,
+		"uboot":       newUboot,
+		"androidboot": newAndroidBoot,
+		"grub":        newGrub,
 	}
 )
 
@@ -308,7 +339,10 @@ func Find(rootdir string, opts *Options) (Bootloader, error) {
 		}
 		if present {
 			return bl, nil
+		} else if err == ErrBootloaderNotFound {
+			continue
 		}
+		logger.Debugf("non-fatal error finding bootloader: %v", err)
 	}
 	// no, weeeee
 	return nil, ErrBootloader
@@ -363,22 +397,44 @@ func removeKernelAssetsFromBootDir(bootDir string, s snap.PlaceInfo) error {
 
 // ForGadget returns a bootloader matching a given gadget by inspecting the
 // contents of gadget directory or an error if no matching bootloader is found.
-func ForGadget(gadgetDir, rootDir string, opts *Options) (Bootloader, error) {
+func ForGadget(gadgetDir, rootDir string, model *asserts.Model, opts *Options) (Bootloader, error) {
 	if err := opts.validate(); err != nil {
 		return nil, err
 	}
 	if forcedBootloader != nil || forcedError != nil {
 		return forcedBootloader, forcedError
 	}
-	for _, blNew := range bootloaders {
-		bl := blNew(rootDir, opts)
-		markerConf := filepath.Join(gadgetDir, bl.Name()+".conf")
-		// do we have a marker file?
-		if osutil.FileExists(markerConf) {
-			return bl, nil
+
+	gInfo, err := gadget.ReadInfo(gadgetDir, model)
+	if err != nil {
+		return nil, err
+	}
+	// TODO:UC20: this should be more intelligent about figuring out which
+	//            volume of the gadget to use, we currently just look for the
+	//            last, non-empty setting of bootloader in the volume
+	gadgetBlName := ""
+	for _, v := range gInfo.Volumes {
+		if v.Bootloader != "" {
+			gadgetBlName = v.Bootloader
 		}
 	}
-	return nil, ErrBootloader
+	if gadgetBlName == "" {
+		return nil, fmt.Errorf("cannot find bootloader from gadget snap: gadget.yaml does not specify a bootloader on any volumes")
+	}
+
+	blNew, ok := bootloaderByName[gadgetBlName]
+	if !ok {
+		return nil, fmt.Errorf("gadget bootloader %q is unknown", gadgetBlName)
+	}
+	bl := blNew(rootDir, opts)
+	ok, err = bl.Present()
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("error gadget specified bootloader %q not installed", gadgetBlName)
+	}
+	return bl, nil
 }
 
 // BootFile represents each file in the chains of trusted assets and

@@ -60,14 +60,14 @@ func (u *uboot) processBlOpts(blOpts *Options) {
 }
 
 // newUboot create a new Uboot bootloader object
-func newUboot(rootdir string, blOpts *Options) Bootloader {
+func newUboot(rootdir string, blOpts *Options) (Bootloader, error) {
 	u := &uboot{
 		rootdir: rootdir,
 	}
 	u.setDefaults()
 	u.processBlOpts(blOpts)
 
-	return u
+	return bootloaderOnlyIfConfigFileExists(u, blOpts)
 }
 
 func (u *uboot) Name() string {

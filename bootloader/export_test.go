@@ -31,7 +31,7 @@ import (
 )
 
 // creates a new Androidboot bootloader object
-func NewAndroidBoot(rootdir string) Bootloader {
+func NewAndroidBoot(rootdir string) (Bootloader, error) {
 	return newAndroidBoot(rootdir, nil)
 }
 
@@ -43,8 +43,12 @@ func MockAndroidBootFile(c *C, rootdir string, mode os.FileMode) {
 	c.Assert(err, IsNil)
 }
 
-func NewUboot(rootdir string, blOpts *Options) ExtractedRecoveryKernelImageBootloader {
-	return newUboot(rootdir, blOpts).(ExtractedRecoveryKernelImageBootloader)
+func NewUboot(rootdir string, blOpts *Options) (ExtractedRecoveryKernelImageBootloader, error) {
+	bl, err := newUboot(rootdir, blOpts)
+	if err != nil {
+		return nil, err
+	}
+	return bl.(ExtractedRecoveryKernelImageBootloader), nil
 }
 
 func MockUbootFiles(c *C, rootdir string, blOpts *Options) {
@@ -61,8 +65,12 @@ func MockUbootFiles(c *C, rootdir string, blOpts *Options) {
 	c.Assert(err, IsNil)
 }
 
-func NewGrub(rootdir string, opts *Options) RecoveryAwareBootloader {
-	return newGrub(rootdir, opts).(RecoveryAwareBootloader)
+func NewGrub(rootdir string, opts *Options) (RecoveryAwareBootloader, error) {
+	bl, err := newGrub(rootdir, opts)
+	if err != nil {
+		return nil, err
+	}
+	return bl.(RecoveryAwareBootloader), nil
 }
 
 func MockGrubFiles(c *C, rootdir string) {
@@ -72,7 +80,7 @@ func MockGrubFiles(c *C, rootdir string) {
 	c.Assert(err, IsNil)
 }
 
-func NewLk(rootdir string, opts *Options) Bootloader {
+func NewLk(rootdir string, opts *Options) (Bootloader, error) {
 	if opts == nil {
 		opts = &Options{}
 	}

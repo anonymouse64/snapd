@@ -77,7 +77,7 @@ func makeBootable16(model *asserts.Model, rootdir string, bootWith *BootableSet)
 	}
 
 	// install the bootloader configuration from the gadget
-	if err := bootloader.InstallBootConfig(bootWith.UnpackedGadgetDir, rootdir, opts); err != nil {
+	if err := bootloader.InstallBootConfig(bootWith.UnpackedGadgetDir, rootdir, model, opts); err != nil {
 		return err
 	}
 
@@ -163,7 +163,7 @@ func makeBootable20(model *asserts.Model, rootdir string, bootWith *BootableSet)
 	}
 
 	// install the bootloader configuration from the gadget
-	if err := bootloader.InstallBootConfig(bootWith.UnpackedGadgetDir, rootdir, opts); err != nil {
+	if err := bootloader.InstallBootConfig(bootWith.UnpackedGadgetDir, rootdir, model, opts); err != nil {
 		return err
 	}
 
@@ -300,7 +300,7 @@ func makeBootable20RunMode(model *asserts.Model, rootdir string, bootWith *Boota
 	// partition was created, but for a trusted assets the bootloader config
 	// will be installed further down; for now identify the run mode
 	// bootloader by looking at the gadget
-	bl, err := bootloader.ForGadget(bootWith.UnpackedGadgetDir, InitramfsUbuntuBootDir, opts)
+	bl, err := bootloader.ForGadget(bootWith.UnpackedGadgetDir, InitramfsUbuntuBootDir, model, opts)
 	if err != nil {
 		return fmt.Errorf("internal error: cannot identify run system bootloader: %v", err)
 	}

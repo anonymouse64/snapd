@@ -33,9 +33,9 @@ type androidboot struct {
 }
 
 // newAndroidboot creates a new Androidboot bootloader object
-func newAndroidBoot(rootdir string, _ *Options) Bootloader {
+func newAndroidBoot(rootdir string, opts *Options) (Bootloader, error) {
 	a := &androidboot{rootdir: rootdir}
-	return a
+	return bootloaderOnlyIfConfigFileExists(a, opts)
 }
 
 func (a *androidboot) Name() string {

@@ -51,7 +51,7 @@ type grub struct {
 }
 
 // newGrub create a new Grub bootloader object
-func newGrub(rootdir string, opts *Options) Bootloader {
+func newGrub(rootdir string, opts *Options) (Bootloader, error) {
 	g := &grub{rootdir: rootdir}
 	if opts != nil {
 		// Set the flag to extract the run kernel, only
@@ -68,7 +68,7 @@ func newGrub(rootdir string, opts *Options) Bootloader {
 		g.basedir = "boot/grub"
 	}
 
-	return g
+	return bootloaderOnlyIfConfigFileExists(g, opts)
 }
 
 func (g *grub) Name() string {

@@ -2585,6 +2585,25 @@ func (s *imageSuite) TestSetupSeedCore20Grub(c *C) {
 	gadgetContent := [][]string{
 		{"grub-recovery.conf", "# recovery grub.cfg"},
 		{"grub.conf", "# boot grub.cfg"},
+		{"meta/gadget.yaml", `volumes:
+ vol1:
+  bootloader: grub
+  structure:
+   - name: ubuntu-seed
+     role: system-seed
+     type: DA,21686148-6449-6E6F-744E-656564454649
+     size: 1M
+     filesystem: ext4
+   - name: ubuntu-boot
+     type: DA,21686148-6449-6E6F-744E-656564454649
+     size: 1M
+     filesystem: ext4
+   - name: ubuntu-data
+     role: system-data
+     type: DA,21686148-6449-6E6F-744E-656564454649
+     size: 1M
+     filesystem: ext4  
+`},
 	}
 	s.makeSnap(c, "pc=20", gadgetContent, snap.R(22), "")
 	s.makeSnap(c, "required20", nil, snap.R(21), "other")
@@ -2741,6 +2760,35 @@ func (s *imageSuite) TestSetupSeedCore20UBoot(c *C) {
 		// TODO:UC20: write this test with non-empty uboot.env when we support
 		//            that
 		{"uboot.conf", ""},
+		{"boot.sel", "some uboot thing"},
+		{"boot-assets/blah", "blah"},
+		{"meta/gadget.yaml", `volumes:
+ pi:
+  schema: mbr
+  bootloader: u-boot
+  structure:
+   - name: ubuntu-seed
+     role: system-seed
+     filesystem: vfat
+     type: 0C
+     size: 1200M
+     content:
+      - source: boot-assets/
+        target: /
+   - name: ubuntu-boot
+     role: system-boot
+     filesystem: vfat
+     type: 0C
+     size: 750M
+     content:
+      - source: boot.sel
+        target: uboot/ubuntu/boot.sel
+   - name: ubuntu-data
+     role: system-data
+     filesystem: ext4
+     type: 83,0FC63DAF-8483-4772-8E79-3D69D8477DE4
+     size: 1500M
+`},
 	}
 	s.makeSnap(c, "uboot-gadget=20", gadgetContent, snap.R(22), "")
 

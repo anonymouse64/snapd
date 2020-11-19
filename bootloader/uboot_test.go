@@ -60,9 +60,10 @@ func (s *ubootTestSuite) TestNewUboot(c *C) {
 
 func (s *ubootTestSuite) TestUbootGetEnvVar(c *C) {
 	bootloader.MockUbootFiles(c, s.rootdir, nil)
-	u := bootloader.NewUboot(s.rootdir, nil)
+	u, err := bootloader.NewUboot(s.rootdir, nil)
+	c.Assert(err, IsNil)
 	c.Assert(u, NotNil)
-	err := u.SetBootVars(map[string]string{
+	err = u.SetBootVars(map[string]string{
 		"snap_mode": "",
 		"snap_core": "4",
 	})
@@ -86,7 +87,8 @@ func (s *ubootTestSuite) TestGetBootloaderWithUboot(c *C) {
 
 func (s *ubootTestSuite) TestUbootSetEnvNoUselessWrites(c *C) {
 	bootloader.MockUbootFiles(c, s.rootdir, nil)
-	u := bootloader.NewUboot(s.rootdir, nil)
+	u, err := bootloader.NewUboot(s.rootdir, nil)
+	c.Assert(err, IsNil)
 	c.Assert(u, NotNil)
 
 	envFile := bootloader.UbootConfigFile(u)
@@ -116,9 +118,10 @@ func (s *ubootTestSuite) TestUbootSetEnvNoUselessWrites(c *C) {
 
 func (s *ubootTestSuite) TestUbootSetBootVarFwEnv(c *C) {
 	bootloader.MockUbootFiles(c, s.rootdir, nil)
-	u := bootloader.NewUboot(s.rootdir, nil)
+	u, err := bootloader.NewUboot(s.rootdir, nil)
+	c.Assert(err, IsNil)
 
-	err := u.SetBootVars(map[string]string{"key": "value"})
+	err = u.SetBootVars(map[string]string{"key": "value"})
 	c.Assert(err, IsNil)
 
 	content, err := u.GetBootVars("key")
@@ -128,9 +131,10 @@ func (s *ubootTestSuite) TestUbootSetBootVarFwEnv(c *C) {
 
 func (s *ubootTestSuite) TestUbootGetBootVarFwEnv(c *C) {
 	bootloader.MockUbootFiles(c, s.rootdir, nil)
-	u := bootloader.NewUboot(s.rootdir, nil)
+	u, err := bootloader.NewUboot(s.rootdir, nil)
+	c.Assert(err, IsNil)
 
-	err := u.SetBootVars(map[string]string{"key2": "value2"})
+	err = u.SetBootVars(map[string]string{"key2": "value2"})
 	c.Assert(err, IsNil)
 
 	content, err := u.GetBootVars("key2")
@@ -140,7 +144,8 @@ func (s *ubootTestSuite) TestUbootGetBootVarFwEnv(c *C) {
 
 func (s *ubootTestSuite) TestExtractKernelAssetsAndRemove(c *C) {
 	bootloader.MockUbootFiles(c, s.rootdir, nil)
-	u := bootloader.NewUboot(s.rootdir, nil)
+	u, err := bootloader.NewUboot(s.rootdir, nil)
+	c.Assert(err, IsNil)
 
 	files := [][]string{
 		{"kernel.img", "I'm a kernel"},
@@ -185,7 +190,8 @@ func (s *ubootTestSuite) TestExtractKernelAssetsAndRemove(c *C) {
 
 func (s *ubootTestSuite) TestExtractRecoveryKernelAssets(c *C) {
 	bootloader.MockUbootFiles(c, s.rootdir, nil)
-	u := bootloader.NewUboot(s.rootdir, nil)
+	u, err := bootloader.NewUboot(s.rootdir, nil)
+	c.Assert(err, IsNil)
 
 	files := [][]string{
 		{"kernel.img", "I'm a kernel"},
@@ -256,6 +262,7 @@ func (s *ubootTestSuite) TestUbootUC20OptsPlacement(c *C) {
 	}
 
 	for _, t := range tt {
+		comment := Commentf(t.comment)
 		dir := c.MkDir()
 		bootloader.MockUbootFiles(c, dir, t.blOpts)
 		u := bootloader.NewUboot(dir, t.blOpts)
@@ -264,9 +271,9 @@ func (s *ubootTestSuite) TestUbootUC20OptsPlacement(c *C) {
 
 		// if we set boot vars on the uboot, we can open the config file and
 		// get the same variables
-		c.Assert(u.SetBootVars(map[string]string{"hello": "there"}), IsNil)
+		c.Assert(u.SetBootVars(map[string]string{"hello": "there"}), IsNil, comment)
 		env, err := ubootenv.Open(filepath.Join(dir, t.expEnv))
-		c.Assert(err, IsNil)
-		c.Assert(env.Get("hello"), Equals, "there")
+		c.Assert(err, IsNil, comment)
+		c.Assert(env.Get("hello"), Equals, "there", comment)
 	}
 }

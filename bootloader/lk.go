@@ -38,7 +38,7 @@ type lk struct {
 }
 
 // newLk create a new lk bootloader object
-func newLk(rootdir string, opts *Options) Bootloader {
+func newLk(rootdir string, opts *Options) (Bootloader, error) {
 	l := &lk{rootdir: rootdir}
 
 	if opts != nil {
@@ -52,7 +52,7 @@ func newLk(rootdir string, opts *Options) Bootloader {
 		l.inRuntimeMode = !opts.PrepareImageTime
 	}
 
-	return l
+	return bootloaderOnlyIfConfigFileExists(l, opts)
 }
 
 func (l *lk) setRootDir(rootdir string) {
