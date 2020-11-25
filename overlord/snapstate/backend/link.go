@@ -161,11 +161,13 @@ func (b Backend) LinkSnap(info *snap.Info, dev boot.Device, linkCtx LinkContext,
 	return reboot, nil
 }
 
+// StartServices starts the listed services in a snap.
 func (b Backend) StartServices(apps []*snap.AppInfo, disabledSvcs []string, meter progress.Meter, tm timings.Measurer) error {
 	flags := &wrappers.StartServicesFlags{Enable: true}
 	return wrappers.StartServices(apps, disabledSvcs, flags, meter, tm)
 }
 
+// StopServices stops the listed services in a snap.
 func (b Backend) StopServices(apps []*snap.AppInfo, reason snap.ServiceStopReason, meter progress.Meter, tm timings.Measurer) error {
 	return wrappers.StopServices(apps, nil, reason, meter, tm)
 }
