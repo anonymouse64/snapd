@@ -33,6 +33,7 @@ import (
 
 	"github.com/snapcore/snapd/asserts"
 	"github.com/snapcore/snapd/boot"
+	"github.com/snapcore/snapd/bootloader"
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
@@ -1147,7 +1148,49 @@ func generateMountsCommonInstallRecover(mst *initramfsMountsState) (*asserts.Mod
 			continue
 		}
 		dir := snapTypeToMountDir[essentialSnap.EssentialType]
-		// TODO:UC20: we need to cross-check the kernel path with snapd_recovery_kernel used by grub
+
+		if essentialSnap.EssentialType == snap.TypeKernel {
+			essentialSnapInfo := essentialSnap.PlaceInfo()
+			errString := "cannot verify kernel snap %q from seed %q: %v"
+
+			// cross-check that the kernel snap from the seed matches the
+			// snapd_recovery_kernel path from the bootloader
+			blOpts := &bootloader.Options{
+				Role: bootloader.RoleRecovery,
+			}
+			recoverySystemBlDir := filepath.Join(boot.InitramfsUbuntuSeedDir, "systems", mst.recoverySystem)
+			bl, err := bootloader.Find(recoverySystemBlDir, blOpts)
+			if err != nil {
+				return nil, fmt.Errorf(errString, essentialSnapInfo.Filename(), mst.recoverySystem, err)
+			}
+
+			m, err := bl.GetBootVars("snapd_recovery_kernel")
+			if err != nil {
+				return nil, fmt.Errorf(errString, essentialSnapInfo.Filename(), mst.recoverySystem, err)
+			}
+
+			if m["snapd_recovery_kernel"] == "" {
+				return nil, fmt.Errorf(errString, essentialSnapInfo.Filename(), mst.recoverySystem, "snapd_recovery_kernel unset")
+			}
+
+			// snapd_recovery_kernel will be something like
+			// "/snaps/kernel_1.snap" - a file path relative from the seed
+			// directory
+			snapdRecoveryKernel := filepath.Join(
+				boot.InitramfsUbuntuSeedDir,
+				m["snapd_recovery_kernel"],
+			)
+
+			if snapdRecoveryKernel != essentialSnap.Path {
+				recoveryKernel := filepath.Base(m["snapd_recovery_kernel"])
+				return nil, fmt.Errorf(
+					errString,
+					essentialSnapInfo.Filename(), mst.recoverySystem,
+					fmt.Errorf("does not match expected snapd_recovery_kernel %q", recoveryKernel),
+				)
+			}
+		}
+
 		if err := doSystemdMount(essentialSnap.Path, filepath.Join(boot.InitramfsRunMntDir, dir), nil); err != nil {
 			return nil, err
 		}
