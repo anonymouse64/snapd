@@ -20,7 +20,6 @@
 package main
 
 import (
-	"bufio"
 	"crypto"
 	"encoding/base64"
 	"fmt"
@@ -53,47 +52,69 @@ func autoImportCandidates() ([]string, error) {
 
 	// see https://www.kernel.org/doc/Documentation/filesystems/proc.txt,
 	// sec. 3.5
-	f, err := os.Open(mountInfoPath)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
+	// f, err := os.Open(mountInfoPath)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// defer f.Close()
 
 	isTesting := snapdenv.Testing()
 
-	// TODO: re-write this to use osutil.LoadMountInfo instead of doing the
-	//       parsing ourselves
+	// scanner := bufio.NewScanner(f)
+	// for scanner.Scan() {
+	// 	l := strings.Fields(scanner.Text())
 
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		l := strings.Fields(scanner.Text())
+	// 	// Per proc.txt:3.5, /proc/<pid>/mountinfo looks like
+	// 	//
+	// 	//  36 35 98:0 /mnt1 /mnt2 rw,noatime master:1 - ext3 /dev/root rw,errors=continue
+	// 	//  (1)(2)(3)   (4)   (5)      (6)      (7)   (8) (9)   (10)         (11)
+	// 	//
+	// 	// and (7) has zero or more elements, find the "-" separator.
+	// 	i := 6
+	// 	for i < len(l) && l[i] != "-" {
+	// 		i++
+	// 	}
+	// 	if i+2 >= len(l) {
+	// 		continue
+	// 	}
 
-		// Per proc.txt:3.5, /proc/<pid>/mountinfo looks like
-		//
-		//  36 35 98:0 /mnt1 /mnt2 rw,noatime master:1 - ext3 /dev/root rw,errors=continue
-		//  (1)(2)(3)   (4)   (5)      (6)      (7)   (8) (9)   (10)         (11)
-		//
-		// and (7) has zero or more elements, find the "-" separator.
-		i := 6
-		for i < len(l) && l[i] != "-" {
-			i++
-		}
-		if i+2 >= len(l) {
-			continue
-		}
+	// 	mountSrc := l[i+2]
 
-		mountSrc := l[i+2]
+	// 	// skip everything that is not a device (cgroups, debugfs etc)
+	// 	if !strings.HasPrefix(mountSrc, "/dev/") {
+	// 		continue
+	// 	}
+	// 	// skip all loop devices (snaps)
+	// 	if strings.HasPrefix(mountSrc, "/dev/loop") {
+	// 		continue
+	// 	}
+	// 	// skip all ram disks (unless in tests)
+	// 	if !isTesting && strings.HasPrefix(mountSrc, "/dev/ram") {
+	// 		continue
+	// 	}
 
+	// 	mountPoint := l[4]
+	// 	cand := filepath.Join(mountPoint, autoImportsName)
+	// 	if osutil.FileExists(cand) {
+	// 		cands = append(cands, cand)
+	// 	}
+	// }
+
+	mnts, err := osutil.LoadMountInfo()
+	if err != nil {
+		return nil, fmt.Errorf("couldn't parse mountinfo: %v", err)
+	}
+	for _, mnt := range mnts {
 		// skip everything that is not a device (cgroups, debugfs etc)
-		if !strings.HasPrefix(mountSrc, "/dev/") {
+		if !strings.HasPrefix(mnt.MountSource, "/dev/") {
 			continue
 		}
 		// skip all loop devices (snaps)
-		if strings.HasPrefix(mountSrc, "/dev/loop") {
+		if strings.HasPrefix(mnt.MountSource, "/dev/loop") {
 			continue
 		}
 		// skip all ram disks (unless in tests)
-		if !isTesting && strings.HasPrefix(mountSrc, "/dev/ram") {
+		if !isTesting && strings.HasPrefix(mnt.MountSource, "/dev/ram") {
 			continue
 		}
 
@@ -102,7 +123,7 @@ func autoImportCandidates() ([]string, error) {
 		//       and determine what partitions to skip using the disks package?
 
 		// skip all initramfs mounted disks on uc20
-		mountPoint := l[4]
+		mountPoint := mnt.MountDir
 		if strings.HasPrefix(mountPoint, boot.InitramfsRunMntDir) {
 			continue
 		}
@@ -121,7 +142,7 @@ func autoImportCandidates() ([]string, error) {
 		}
 	}
 
-	return cands, scanner.Err()
+	return cands, nil
 }
 
 func queueFile(src string) error {
