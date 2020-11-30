@@ -1,5 +1,4 @@
 // -*- Mode: Go; indent-tabs-mode: t -*-
-// +build !darwin
 
 /*
  * Copyright (C) 2017-2019 Canonical Ltd
@@ -75,8 +74,6 @@ func (x *cmdUserd) Execute(args []string) error {
 
 	return x.runUserd()
 }
-
-var signalNotify = signalNotifyImpl
 
 func (x *cmdUserd) runUserd() error {
 	var userd userd.Userd
