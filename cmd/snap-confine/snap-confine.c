@@ -729,6 +729,11 @@ static void enter_non_classic_execution_environment(sc_invocation * inv,
 
 	sc_close_mount_ns(group);
 
+	// Reset LD_PRELOAD as the value for this from the host OS will not make 
+	// sense for strict snaps.
+	debug("clearing LD_PRELOAD");
+	setenv("LD_PRELOAD", "", 1);
+
 	// Reset path as we cannot rely on the path from the host OS to make sense.
 	// The classic distribution may use any PATH that makes sense but we cannot
 	// assume it makes sense for the core snap layout. Note that the /usr/local
