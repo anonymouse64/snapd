@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 
 	"github.com/snapcore/snapd/gadget"
+	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/snap"
 )
 
@@ -107,6 +108,26 @@ func ConfigureTargetSystem(opts *Options) error {
 			}
 		}
 	}
+
+	return nil
+}
+
+// ConfigureTargetSystemJournalData configures the ubuntu-data partition with
+// journal data from the WritableDefaults directory, which is expected to have
+// been populated from install mode before rebooting into run mode.
+func ConfigureTargetSystemJournalData(srcrootdir, targetrootdir string) error {
+	machineID := WritableDefaultsDir(srcrootdir, "etc/machine-id")
+	err := osutil.CopyFile(machineID, filepath.Join(targetrootdir, "etc/machine-id"), 0)
+	if err != nil {
+		return err
+	}
+
+	// now copy the journal data into place, the journal data from install mode
+	// would have been also copied to _writable_defaults/run/log/journal/*, and
+	// should be copied to either the system's normal /run/log/journal dir, or
+	// to
+	journalDir := WritableDefaultsDir(srcrootdir, "run/log/journal/")
+	err := osutil.CopyDir()
 
 	return nil
 }

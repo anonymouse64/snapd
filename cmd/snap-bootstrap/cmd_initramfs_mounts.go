@@ -1399,7 +1399,18 @@ func generateMountsModeRun(mst *initramfsMountsState) error {
 			return fmt.Errorf("cannot load metadata and verify snapd snap: %v", err)
 		}
 
-		return doSystemdMount(essSnaps[0].Path, filepath.Join(boot.InitramfsRunMntDir, "snapd"), nil)
+		if err := doSystemdMount(essSnaps[0].Path, filepath.Join(boot.InitramfsRunMntDir, "snapd"), nil); err != nil {
+			return err
+		}
+
+		// RecoverySystem is only set during the first boot into run mode, so we
+		// (ab)use that to indicate that we should copy journal related data
+		// from install mode to run mode
+
+		// specifically import journal data and /etc/machine-id from
+		// _writable_defaults forward from the install mode to run mode so that
+		// all of the logs from install mode are saved to run mode
+		return sysconfig.ConfigureTargetSystemJournalData()
 	}
 
 	return nil
