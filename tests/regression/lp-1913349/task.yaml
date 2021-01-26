@@ -1,0 +1,51 @@
+summary: remove hook w/ snapctl is sensible when snap is disabled
+
+details: |
+  Remove hooks may call snapctl to do various things, but the remove hook may
+  also be called when the snap is disabled in which case some of the snapctl
+  actions don't make sense and others should just silently "do the right thing"
+
+prepare: |
+  # build the two snaps, one with a remove hook which calls snapctl start
+  # and one which calls snapctl stop
+
+  mkdir -p ./meta/hooks
+
+  cp remove-snapctl-start meta/hooks/remove
+  snap pack . --filename=test-disabled-remove-hook-snapctl-start.snap
+
+  cp remove-snapctl-stop meta/hooks/remove
+  snap pack . --filename=test-disabled-remove-hook-snapctl-stop.snap
+
+restore: |
+  snap remove test-disabled-remove-hook || true
+
+execute: |
+  echo "Installing and disabling a snap with remove hook that calls snapctl stop"
+  snap install --dangerous test-disabled-remove-hook-snapctl-stop.snap
+  snap services test-disabled-remove-hook | MATCH "test-disabled-remove-hook.svc\s+enabled\s+active"
+  snap disable test-disabled-remove-hook
+
+  echo "Removing the snap with snapctl stop does not produce an error in the task log"
+  chg=$(snap remove test-disabled-remove-hook)
+  snap tasks $chg | NOMATCH "ERROR ignoring failure in hook \"remove\""
+
+  if snap list test-disabled-remove-hook; then
+    echo "Failed to remove the snap, test broken"
+    exit 1
+  fi
+
+  echo "Installing and disabling a snap with remove hook that calls snapctl start"
+  snap install --dangerous test-disabled-remove-hook-snapctl-start.snap
+  snap services test-disabled-remove-hook | MATCH "test-disabled-remove-hook.svc\s+enabled\s+active"
+  snap disable test-disabled-remove-hook
+
+  echo "Removing the snap with snapctl start does produce an error in the task log"
+  chg=$(snap remove test-disabled-remove-hook)
+  snap tasks $chg | MATCH "ERROR ignoring failure in hook \"remove\""
+  snap tasks $chg | MATCH "stub error message from snapctl when a snap is disabled"
+
+  if snap list test-disabled-remove-hook; then
+    echo "Failed to remove the snap, test broken"
+    exit 1
+  fi

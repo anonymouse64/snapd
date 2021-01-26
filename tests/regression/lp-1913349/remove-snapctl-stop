@@ -1,0 +1,3 @@
+#!/bin/bash -ex
+
+snapctl stop --disable "$SNAP_NAME.svc"

@@ -1,0 +1,7 @@
+name: test-disabled-remove-hook
+version: 1
+
+apps:
+  svc:
+    command: bin/svc.sh
+    daemon: simple
