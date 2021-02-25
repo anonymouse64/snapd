@@ -440,19 +440,37 @@ func setupSeed(tsto *ToolingStore, model *asserts.Model, opts *Options) error {
 		return err
 	}
 
-	// early config & cloud-init config (done at install for Core 20)
-	if !core20 {
-		// and the cloud-init things
+	defaultsDir := sysconfig.WritableDefaultsDir(rootDir)
+	defaults := gadget.SystemDefaults(gadgetInfo.Defaults)
+
+	// finally handle applying config to the system, early config and
+	// cloud-init are done now for UC16/18, but done at install time for UC20
+	// but for UC20, we handle some very specific "preinstall" config like
+	// pi-config here since it needs to be applied before booting to take effect
+	if core20 {
+		// TODO: should we apply these options for non-UC20 too? right now we
+		//       are conservative and only making the change for UC20 where it's
+		//       needed, but the same thing could be done for UC16/18 too
+		if len(defaults) > 0 {
+			applyOpts := &sysconfig.FilesystemOnlyApplyOptions{}
+
+			// don't use writable_defaults here as rootDir, since we don't have
+			// a writable at image build time
+			uc20RootConfigDir := filepath.Join(opts.PrepareDir, "system-seed")
+			return sysconfig.ApplyPreinstallFilesystemOnlyDefaults(uc20RootConfigDir, defaults, applyOpts)
+		}
+	} else {
+		// early config & cloud-init config are done now for UC16/18
 		if err := installCloudConfig(rootDir, gadgetUnpackDir); err != nil {
 			return err
 		}
 
-		defaultsDir := sysconfig.WritableDefaultsDir(rootDir)
-		defaults := gadget.SystemDefaults(gadgetInfo.Defaults)
 		if len(defaults) > 0 {
 			if err := os.MkdirAll(sysconfig.WritableDefaultsDir(rootDir, "/etc"), 0755); err != nil {
 				return err
 			}
+			// TODO: specifying opts.Classic here is redundant since all we exit
+			//       above if opts.Classic is true
 			applyOpts := &sysconfig.FilesystemOnlyApplyOptions{Classic: opts.Classic}
 			return sysconfig.ApplyFilesystemOnlyDefaults(defaultsDir, defaults, applyOpts)
 		}
