@@ -313,7 +313,7 @@ type FDERevealKeyRequest struct {
 
 // fdeRevealKeyRuntimeMax is the maximum runtime a fde-reveal-key can execute
 // XXX: what is a reasonable default here?
-var fdeRevealKeyRuntimeMax = 2 * time.Minute
+var fdeRevealKeyRuntimeMax = 1 * time.Minute
 
 // 50 ms means we check at a frequency 20 Hz, fast enough to not hold
 // up boot, but not too fast that we are hogging the CPU from the
@@ -322,7 +322,7 @@ var fdeRevealKeyPollWait = 50 * time.Millisecond
 
 // fdeRevealKeyPollWaitParanoiaFactor controls much longer we wait
 // then fdeRevealKeyRuntimeMax before stopping to poll for results
-var fdeRevealKeyPollWaitParanoiaFactor = 2
+var fdeRevealKeyPollWaitParanoiaFactor = 1
 
 // overridden in tests
 var fdeRevealKeyCommandExtra []string
