@@ -105,6 +105,7 @@ func generateInitramfsMounts() (err error) {
 	// ensure that the last thing we do is to lock access to sealed keys,
 	// regardless of mode or early failures.
 	defer func() {
+		fmt.Println("[snap-bootstrap] locking access to sealed keys")
 		if e := secbootLockSealedKeys(); e != nil {
 			e = fmt.Errorf("error locking access to sealed keys: %v", e)
 			if err == nil {

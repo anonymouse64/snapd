@@ -208,6 +208,7 @@ func lockFDERevealSealedKeys() error {
 	if err != nil {
 		return fmt.Errorf(`cannot build request for fde-reveal-key "lock": %v`, err)
 	}
+	fmt.Println("locking access to sealed keys with fde-reveal-key")
 	if output, err := runFDERevealKeyCommand(buf); err != nil {
 		return fmt.Errorf(`cannot run fde-reveal-key "lock": %v`, osutil.OutputErr(output, err))
 	}
@@ -333,6 +334,7 @@ var fdeRevealKeyCommandExtra []string
 // systemd bus so this cannot use "--pipe" or "--wait", see
 // https://github.com/snapcore/core-initrd/issues/13
 func runFDERevealKeyCommand(stdin []byte) (output []byte, err error) {
+	fmt.Println("[snap-bootstrap] executing fde-reveal-key command")
 	runDir := filepath.Join(dirs.GlobalRootDir, "/run/fde-reveal-key")
 	if err := os.MkdirAll(runDir, 0700); err != nil {
 		return nil, fmt.Errorf("cannot create tmp dir for fde-reveal-key: %v", err)
@@ -402,6 +404,8 @@ func runFDERevealKeyCommand(stdin []byte) (output []byte, err error) {
 		}
 	}()
 
+	fmt.Printf("[snap-bootstrap] fde-reveal-key command is %+v\n", cmd.Args)
+
 	// run the command
 	output, err = cmd.CombinedOutput()
 	if err != nil {
@@ -415,19 +419,24 @@ func runFDERevealKeyCommand(stdin []byte) (output []byte, err error) {
 	// However we are paranoid and exit this loop if systemd
 	// did not terminate the process after twice the allocated
 	// runtime
+
 	maxLoops := int(fdeRevealKeyRuntimeMax/fdeRevealKeyPollWait) * fdeRevealKeyPollWaitParanoiaFactor
+	fmt.Printf("[snap-bootstrap] fde-reveal-key wait loop max %d\n", maxLoops)
 	for i := 0; i < maxLoops; i++ {
 		switch {
 		case osutil.FileExists(filepath.Join(runDir, "fde-reveal-key.failed")):
+			fmt.Printf("[snap-bootstrap] fde-reveal-key service failed\n")
 			stderr, _ := ioutil.ReadFile(filepath.Join(runDir, "fde-reveal-key.stderr"))
 			systemdErr, _ := ioutil.ReadFile(filepath.Join(runDir, "fde-reveal-key.failed"))
 			buf := bytes.NewBuffer(stderr)
 			buf.Write(systemdErr)
 			return buf.Bytes(), fmt.Errorf("fde-reveal-key failed")
 		case osutil.FileExists(filepath.Join(runDir, "fde-reveal-key.success")):
+			fmt.Printf("[snap-bootstrap] fde-reveal-key service successful\n")
 			return ioutil.ReadFile(filepath.Join(runDir, "fde-reveal-key.stdout"))
 		default:
 			time.Sleep(fdeRevealKeyPollWait)
+			fmt.Printf("[snap-bootstrap] sleeping for fde-reveal-key service...\n")
 		}
 	}
 
@@ -451,6 +460,7 @@ func unlockVolumeUsingSealedKeyFDERevealKey(name, sealedEncryptionKeyFile, sourc
 	if err != nil {
 		return res, fmt.Errorf("cannot build request for fde-reveal-key: %v", err)
 	}
+	fmt.Println("unlocking volume with fde-reveal-key")
 	output, err := runFDERevealKeyCommand(buf)
 	if err != nil {
 		return res, fmt.Errorf("cannot run fde-reveal-key: %v", osutil.OutputErr(output, err))
