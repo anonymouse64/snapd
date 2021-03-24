@@ -367,7 +367,8 @@ func runFDERevealKeyCommand(stdin []byte) (output []byte, err error) {
 	// TODO: put this into a new "systemd/run" package
 	cmd := exec.Command(
 		"systemd-run",
-		"--collect",
+		// XXX: re-enable later
+		// "--collect",
 		"--service-type=exec",
 		"--quiet",
 		// ensure we get some result from the hook within a
