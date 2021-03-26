@@ -100,21 +100,29 @@ func updatePiConfig(path string, config map[string]string) error {
 func piConfigFile(opts *fsOnlyContext) (string, error) {
 	rootDir := dirs.GlobalRootDir
 	subdir := "/boot/uboot"
-	if opts != nil {
-		rootDir = opts.RootDir
-	} else {
-		// not a filesystem only apply, so we may be operating on a run system
-		// on UC20, in which case we shouldn't use the /boot/uboot/ option and
-		// instead should use /run/mnt/ubuntu-seed/
-		kCmdlineVals, err := osutil.KernelCommandLineKeyValues("snapd_recovery_mode")
-		if err != nil {
-			return "", err
-		}
 
-		// TODO: what about recover mode?
-		if kCmdlineVals["snapd_recovery_mode"] == "run" {
-			rootDir = boot.InitramfsUbuntuSeedDir
-			subdir = ""
+	kCmdlineVals, err := osutil.KernelCommandLineKeyValues("snapd_recovery_mode")
+	if err != nil {
+		return "", err
+	}
+
+	// TODO: what about recover mode?
+	isUC20RunMode := kCmdlineVals["snapd_recovery_mode"] == "run"
+
+	// regardless of whether this is a filesystem only apply or not, if we are
+	// operating on a uc20 run mode system, then we need to use the ubuntu-seed
+	// config.txt and ignore any RootDir that was provided to us
+	if isUC20RunMode {
+		rootDir = boot.InitramfsUbuntuSeedDir
+		subdir = ""
+	} else {
+		// not uc20 run mode, need to consider filesystem only apply on uc18,
+		// or possible image-prepare time for a recovery system with uc20
+		if opts != nil {
+			rootDir = opts.RootDir
+			if opts.UC20Recovery {
+				subdir = ""
+			}
 		}
 	}
 	return filepath.Join(rootDir, subdir, "config.txt"), nil
