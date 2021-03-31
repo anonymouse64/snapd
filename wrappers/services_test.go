@@ -198,7 +198,6 @@ func (s *servicesTestSuite) TestAddSnapServicesWithInterfaceSnippets(c *C) {
 
 		// multiple interfaces that require Delegate=true, but only one is
 		// generated
-
 		{
 			"multiple interfaces that require Delegate=true",
 			`
@@ -208,7 +207,6 @@ func (s *servicesTestSuite) TestAddSnapServicesWithInterfaceSnippets(c *C) {
 		},
 
 		// interfaces with flavor attributes
-
 		{
 			"k8s-support with kubelet",
 			`
