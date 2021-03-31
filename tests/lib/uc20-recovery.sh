@@ -57,7 +57,9 @@ if grep -q 'snapd_recovery_mode=recover' /proc/cmdline; then
     # silence the output so that nothing is output to a ssh command,
     # potentially confusing spread
     sudo mkdir /home/gopath > /dev/null
-    sudo mount --bind /host/ubuntu-data/user-data/gopath /home/gopath > /dev/null
+    if ! mountpoint /home/gopath; then
+        sudo mount --bind /host/ubuntu-data/user-data/gopath /home/gopath > /dev/null
+    fi
 fi
 EOF
     fi
