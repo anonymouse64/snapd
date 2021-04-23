@@ -32,6 +32,9 @@ import (
 	. "gopkg.in/check.v1"
 
 	"github.com/snapcore/snapd/dirs"
+	"github.com/snapcore/snapd/gadget/quantity"
+	"github.com/snapcore/snapd/quota"
+
 	// imported to ensure actual interfaces are defined,
 	// in production this is guaranteed by ifacestate
 	_ "github.com/snapcore/snapd/interfaces/builtin"
@@ -161,6 +164,110 @@ WantedBy=multi-user.target
 	})
 }
 
+func (s *servicesTestSuite) TestEnsureSnapServicesWithQuotaGroupsForSnaps(c *C) {
+	info1 := snaptest.MockSnap(c, packageHello, &snap.SideInfo{Revision: snap.R(12)})
+	info2 := snaptest.MockSnap(c, `
+name: hello-other-snap
+version: 1.10
+summary: hello
+description: Hello...
+apps:
+ hello:
+   command: bin/hello
+ world:
+   command: bin/world
+   completer: world-completer.sh
+ svc1:
+  command: bin/hello
+  stop-command: bin/goodbye
+  post-stop-command: bin/missya
+  daemon: forking
+`, &snap.SideInfo{Revision: snap.R(12)})
+	svcFile1 := filepath.Join(s.tempdir, "/etc/systemd/system/snap.hello-snap.svc1.service")
+	svcFile2 := filepath.Join(s.tempdir, "/etc/systemd/system/snap.hello-other-snap.svc1.service")
+
+	var err error
+	memLimit := quantity.SizeGiB
+	// make a root quota group and add the first snap to it
+	grp, err := quota.NewGroup("foogroup", memLimit)
+	c.Assert(err, IsNil)
+
+	// the second group is a sub-group with the same limit, but is for the 
+	// second group
+	subgrp, err := grp.NewSubGroup("subgroup", memLimit)
+	c.Assert(err, IsNil)
+
+	sliceFile := filepath.Join(s.tempdir, "/etc/systemd/system/foogroup.slice")
+	subSliceFile := filepath.Join(s.tempdir, "/etc/systemd/system/foogroup-subgroup.slice")
+
+	m := map[*snap.Info]*wrappers.SnapServiceOptions{
+		info1: {QuotaGroup: grp},
+		info2: {QuotaGroup: subgrp},
+	}
+
+	err = wrappers.EnsureSnapServices(m, nil, nil, progress.Null)
+	c.Assert(err, IsNil)
+	c.Check(s.sysdLog, DeepEquals, [][]string{
+		{"daemon-reload"},
+	})
+
+	svcTemplate := `[Unit]
+# Auto-generated, DO NOT EDIT
+Description=Service for snap application %[1]s.svc1
+Requires=%[2]s
+Wants=network.target
+After=%[2]s network.target snapd.apparmor.service
+X-Snappy=yes
+
+[Service]
+EnvironmentFile=-/etc/environment
+ExecStart=/usr/bin/snap run %[1]s.svc1
+SyslogIdentifier=%[1]s.svc1
+Restart=on-failure
+WorkingDirectory=%[3]s/var/snap/%[1]s/12
+ExecStop=/usr/bin/snap run --command=stop %[1]s.svc1
+ExecStopPost=/usr/bin/snap run --command=post-stop %[1]s.svc1
+TimeoutStopSec=30
+Type=forking
+Slice=%[4]s
+
+[Install]
+WantedBy=multi-user.target
+`
+
+	dir1 := filepath.Join(dirs.SnapMountDir, "hello-snap", "12.mount")
+	dir2 := filepath.Join(dirs.SnapMountDir, "hello-other-snap", "12.mount")
+
+	c.Assert(svcFile1, testutil.FileEquals, fmt.Sprintf(svcTemplate,
+		"hello-snap",
+		systemd.EscapeUnitNamePath(dir1),
+		dirs.GlobalRootDir,
+		"foogroup.slice",
+	))
+
+	c.Assert(svcFile2, testutil.FileEquals, fmt.Sprintf(svcTemplate,
+		"hello-other-snap",
+		systemd.EscapeUnitNamePath(dir2),
+		dirs.GlobalRootDir,
+		"foogroup-subgroup.slice",
+	))
+
+	// check that the slice units were also generated
+
+	templ := `[Unit]
+Description=Slice for snap quota group %s
+Before=slices.target
+
+[Slice]
+# Always enable memory accounting otherwise the MemoryMax setting does nothing.
+MemoryAccounting=true
+MemoryMax=%s
+`
+
+	c.Assert(sliceFile, testutil.FileEquals, fmt.Sprintf(templ, "foogroup", memLimit.String()))
+	c.Assert(subSliceFile, testutil.FileEquals, fmt.Sprintf(templ, "subgroup", memLimit.String()))
+}
+
 func (s *servicesTestSuite) TestEnsureSnapServicesAdds(c *C) {
 	// map unit -> new
 	seen := make(map[string]bool)
@@ -203,6 +310,52 @@ ExecStop=/usr/bin/snap run --command=stop hello-snap.svc1
 ExecStopPost=/usr/bin/snap run --command=post-stop hello-snap.svc1
 TimeoutStopSec=30
 Type=forking
+
+[Install]
+WantedBy=multi-user.target
+`,
+		systemd.EscapeUnitNamePath(dir),
+		dirs.GlobalRootDir,
+	))
+}
+
+func (s *servicesTestSuite) TestEnsureSnapServicesWithSnapLevelQuotas(c *C) {
+	info := snaptest.MockSnap(c, packageHello, &snap.SideInfo{Revision: snap.R(12)})
+	svcFile := filepath.Join(s.tempdir, "/etc/systemd/system/snap.hello-snap.svc1.service")
+
+	grp, err := quota.NewGroup("foogroup", quantity.SizeGiB)
+	c.Assert(err, IsNil)
+
+	m := map[*snap.Info]*wrappers.SnapServiceOptions{
+		info: {QuotaGroup: grp},
+	}
+
+	err = wrappers.EnsureSnapServices(m, nil, nil, progress.Null)
+	c.Assert(err, IsNil)
+	c.Check(s.sysdLog, DeepEquals, [][]string{
+		{"daemon-reload"},
+	})
+
+	dir := filepath.Join(dirs.SnapMountDir, "hello-snap", "12.mount")
+	c.Assert(svcFile, testutil.FileEquals, fmt.Sprintf(`[Unit]
+# Auto-generated, DO NOT EDIT
+Description=Service for snap application hello-snap.svc1
+Requires=%[1]s
+Wants=network.target
+After=%[1]s network.target snapd.apparmor.service
+X-Snappy=yes
+
+[Service]
+EnvironmentFile=-/etc/environment
+ExecStart=/usr/bin/snap run hello-snap.svc1
+SyslogIdentifier=hello-snap.svc1
+Restart=on-failure
+WorkingDirectory=%[2]s/var/snap/hello-snap/12
+ExecStop=/usr/bin/snap run --command=stop hello-snap.svc1
+ExecStopPost=/usr/bin/snap run --command=post-stop hello-snap.svc1
+TimeoutStopSec=30
+Type=forking
+Slice=foogroup.slice
 
 [Install]
 WantedBy=multi-user.target
