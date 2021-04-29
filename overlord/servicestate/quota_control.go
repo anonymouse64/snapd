@@ -338,6 +338,20 @@ type QuotaGroupUpdate struct {
 	// NewMemoryLimit is the new memory limit to be used for the quota group. If
 	// zero, then the quota group's memory limit is not changed.
 	NewMemoryLimit quantity.Size
+
+	// ReplaceSnaps is whether or not the AddSnaps field replaces the existing
+	// list of snaps in the quota group or not. By default with this setting
+	// false, snaps in AddSnaps are appended to the existing list of snaps in
+	// the quota group.
+	ReplaceSnaps bool
+
+	// NewParentGroup is the new parent group to move this quota group
+	// underneath as a sub-group.
+	NewParentGroup string
+
+	// OrphanSubGroup is whether or not to move the group out from underneath
+	// the existing parent group as it's own group without a parent.
+	OrphanSubGroup bool
 }
 
 // UpdateQuota updates the quota as per the options.
@@ -362,6 +376,21 @@ func UpdateQuota(st *state.State, name string, updateOpts QuotaGroupUpdate) erro
 
 	modifiedGrps := []*quota.Group{grp}
 
+	// if we are orphaning this sub-group, make sure it is indeed a sub-group
+	if updateOpts.OrphanSubGroup && grp.ParentGroup == "" {
+		return fmt.Errorf("cannot orphan a sub-group already without a parent")
+	}
+
+	if updateOpts.OrphanSubGroup && updateOpts.NewParentGroup != "" {
+		return fmt.Errorf("cannot both orphan a sub-group and move to a new parent group")
+	}
+
+	if updateOpts.NewParentGroup != "" {
+		if _, ok := allGrps[updateOpts.NewParentGroup]; !ok {
+			return fmt.Errorf("cannot move quota group %q to non-existent parent group %q", name, updateOpts.NewParentGroup)
+		}
+	}
+
 	// now ensure that all of the snaps mentioned in AddSnaps exist as snaps and
 	// that they aren't already in an existing quota group
 	if err := validateSnapForAddingToGroup(st, updateOpts.AddSnaps, name, allGrps); err != nil {
@@ -374,6 +403,62 @@ func UpdateQuota(st *state.State, name string, updateOpts QuotaGroupUpdate) erro
 	// if the memory limit is not zero then change it too
 	if updateOpts.NewMemoryLimit != 0 {
 		grp.MemoryLimit = updateOpts.NewMemoryLimit
+	}
+
+	if updateOpts.OrphanSubGroup {
+		// orphaning
+
+		// then we need to get the parent group and remove the links for the
+		// parent group from that one
+
+		oldParent, ok := allGrps[grp.ParentGroup]
+		if !ok {
+			return fmt.Errorf("internal error: existing parent group %q of group %q does not exist", grp.ParentGroup, name)
+		}
+
+		// remove the group from the parent's sub-groups
+		newSubGroups := make([]string, 0, len(oldParent.SubGroups))
+		for _, sub := range oldParent.SubGroups {
+			if sub != name {
+				newSubGroups = append(newSubGroups, sub)
+			}
+		}
+
+		oldParent.SubGroups = newSubGroups
+		grp.ParentGroup = ""
+
+		modifiedGrps = append(modifiedGrps, oldParent)
+	} else if updateOpts.NewParentGroup != "" {
+		// adoption
+
+		// first check if the existing group already has a parent, in which case
+		// we need to remove it from that one and include that group in the list
+		// of modified groups to patch state with
+		if grp.ParentGroup != "" {
+			origParent, ok := allGrps[grp.ParentGroup]
+			if !ok {
+				return fmt.Errorf("internal error: existing parent group %q to group %q not found", grp.ParentGroup, name)
+			}
+
+			// remove this group as a sub-group from the original parent
+			newSubGroups := make([]string, 0, len(origParent.SubGroups))
+			for _, sub := range origParent.SubGroups {
+				if sub != name {
+					newSubGroups = append(newSubGroups, sub)
+				}
+			}
+
+			origParent.SubGroups = newSubGroups
+
+			modifiedGrps = append(modifiedGrps, origParent)
+		}
+
+		// get the new parent and set it up
+		newParent := allGrps[updateOpts.NewParentGroup]
+		newParent.SubGroups = append(newParent.SubGroups, name)
+		grp.ParentGroup = updateOpts.NewParentGroup
+
+		modifiedGrps = append(modifiedGrps, newParent)
 	}
 
 	// update the quota group state
