@@ -397,8 +397,12 @@ func UpdateQuota(st *state.State, name string, updateOpts QuotaGroupUpdate) erro
 		return err
 	}
 
-	//  append the snaps list in the group
-	grp.Snaps = append(grp.Snaps, updateOpts.AddSnaps...)
+	if updateOpts.ReplaceSnaps {
+		grp.Snaps = updateOpts.AddSnaps
+	} else {
+		//  append the snaps list in the group
+		grp.Snaps = append(grp.Snaps, updateOpts.AddSnaps...)
+	}
 
 	// if the memory limit is not zero then change it too
 	if updateOpts.NewMemoryLimit != 0 {
