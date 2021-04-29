@@ -149,18 +149,24 @@ func ensureSnapServicesForGroup(st *state.State, grp *quota.Group, allGrps map[s
 	return nil
 }
 
-func validateSnapForAddingToGroup(st *state.State, snaps []string, group string, allGrps map[string]*quota.Group) error {
+// validateSnapsForAddingToGroup validates whether the specified snaps can be
+// added to a new quota group, also allowing them to exist in a specific group
+// currently in the case of moving snaps from one group to another group.
+func validateSnapsForAddingToGroup(st *state.State, snaps []string, allGrps map[string]*quota.Group, groupToAllowSnapsIn string) error {
 	for _, name := range snaps {
 		// validate that the snap exists
 		_, err := snapstate.CurrentInfo(st, name)
 		if err != nil {
-			return fmt.Errorf("cannot use snap %q in group %q: %v", name, group, err)
+			return err
 		}
 
-		// check that the snap is not already in a group
+		// check that this snap is not already in a group, except for the
+		// specified group that we allow snaps to be in
 		for _, grp := range allGrps {
-			if strutil.ListContains(grp.Snaps, name) {
-				return fmt.Errorf("cannot add snap %q to group %q: snap already in quota group %q", name, group, grp.Name)
+			if grp.Name != groupToAllowSnapsIn {
+				if strutil.ListContains(grp.Snaps, name) {
+					return fmt.Errorf("snap already in quota group %q", grp.Name)
+				}
 			}
 		}
 	}
@@ -208,9 +214,10 @@ func CreateQuota(st *state.State, name string, parentName string, snaps []string
 		return fmt.Errorf("group %q already exists", name)
 	}
 
-	// make sure the specified snaps exist and aren't currently in another group
-	if err := validateSnapForAddingToGroup(st, snaps, name, allGrps); err != nil {
-		return err
+	// make sure the specified snaps exist and aren't currently in any other
+	// group
+	if err := validateSnapsForAddingToGroup(st, snaps, allGrps, ""); err != nil {
+		return fmt.Errorf("cannot create quota with snaps %s: %v", strutil.Quoted(snaps), err)
 	}
 
 	// make sure that the parent group exists if we are creating a sub-group
@@ -392,13 +399,26 @@ func UpdateQuota(st *state.State, name string, updateOpts QuotaGroupUpdate) erro
 	}
 
 	// now ensure that all of the snaps mentioned in AddSnaps exist as snaps and
-	// that they aren't already in an existing quota group
-	if err := validateSnapForAddingToGroup(st, updateOpts.AddSnaps, name, allGrps); err != nil {
-		return err
+	// that they aren't already in an existing quota group except for this group
+	// in the case that we are replacing fully the list of snaps in the quota
+	// group to be a subset - this case shows up when we want to remove a single
+	// snap from a quota group without deleting and re-creating the quota group
+	allowedGroup := ""
+	if updateOpts.ReplaceSnaps {
+		allowedGroup = name
+	}
+	if err := validateSnapsForAddingToGroup(st, updateOpts.AddSnaps, allGrps, allowedGroup); err != nil {
+		return fmt.Errorf("cannot update quota with snaps %s: %v", strutil.Quoted(updateOpts.AddSnaps), err)
 	}
 
+	modifiedSnaps := []string{}
+
 	if updateOpts.ReplaceSnaps {
+		modifiedSnaps = grp.Snaps
 		grp.Snaps = updateOpts.AddSnaps
+		// the original snaps we are removing should be ensured as well, because
+		// they may end up getting removed from the groups below and hence be
+		// missed by ensureSnapServicesForGroup
 	} else {
 		//  append the snaps list in the group
 		grp.Snaps = append(grp.Snaps, updateOpts.AddSnaps...)
@@ -472,7 +492,7 @@ func UpdateQuota(st *state.State, name string, updateOpts QuotaGroupUpdate) erro
 	}
 
 	// ensure service states are updated
-	return ensureSnapServicesForGroup(st, grp, allGrps, nil)
+	return ensureSnapServicesForGroup(st, grp, allGrps, modifiedSnaps)
 }
 
 // XXX: this should go away and just become an option to UpdateQuota but that is

@@ -26,17 +26,14 @@ import (
 	. "gopkg.in/check.v1"
 
 	"github.com/snapcore/snapd/dirs"
-	_ "github.com/snapcore/snapd/overlord/devicestate"
-	"github.com/snapcore/snapd/overlord/state"
-	_ "github.com/snapcore/snapd/overlord/state"
-	"github.com/snapcore/snapd/testutil"
-
 	"github.com/snapcore/snapd/gadget/quantity"
 	"github.com/snapcore/snapd/overlord/configstate/config"
 	"github.com/snapcore/snapd/overlord/servicestate"
 	"github.com/snapcore/snapd/overlord/snapstate"
+	"github.com/snapcore/snapd/overlord/state"
 	"github.com/snapcore/snapd/snap"
 	"github.com/snapcore/snapd/snap/snaptest"
+	"github.com/snapcore/snapd/testutil"
 )
 
 type quotaControlSuite struct {
@@ -186,13 +183,18 @@ func systemctlCallsForServiceRestart(name string) []expectedSystemctl {
 	}
 }
 
-func systemctlCallsForCreateQuota(groupName, snapName string) []expectedSystemctl {
-	return join(
+func systemctlCallsForCreateQuota(groupName string, snapNames ...string) []expectedSystemctl {
+	calls := join(
 		systemctlCallsVersion(248),
 		[]expectedSystemctl{{expArgs: []string{"daemon-reload"}}},
 		systemctlCallsForSliceRestart(groupName),
-		systemctlCallsForServiceRestart(snapName),
 	)
+
+	for _, snapName := range snapNames {
+		calls = join(calls, systemctlCallsForServiceRestart(snapName))
+	}
+
+	return calls
 }
 
 func systemctlCallsVersion(version int) []expectedSystemctl {
@@ -235,7 +237,7 @@ func (s *quotaControlSuite) TestCreateQuota(c *C) {
 
 	// trying to create a quota with a snap that doesn't exist fails
 	err := servicestate.CreateQuota(s.state, "foo", "", []string{"test-snap"}, quantity.SizeGiB)
-	c.Assert(err, ErrorMatches, `cannot use snap "test-snap" in group "foo": snap "test-snap" is not installed`)
+	c.Assert(err, ErrorMatches, `cannot create quota with snaps "test-snap": snap "test-snap" is not installed`)
 
 	// setup the snap so it exists
 	snapstate.Set(s.state, "test-snap", s.testSnapState)
@@ -247,7 +249,7 @@ func (s *quotaControlSuite) TestCreateQuota(c *C) {
 
 	// we can't add the same snap to a different group though
 	err = servicestate.CreateQuota(s.state, "foo2", "", []string{"test-snap"}, quantity.SizeGiB)
-	c.Assert(err, ErrorMatches, `cannot add snap "test-snap" to group "foo2": snap already in quota group "foo"`)
+	c.Assert(err, ErrorMatches, `cannot create quota with snaps "test-snap": snap already in quota group "foo"`)
 
 	// creating the same group again will fail
 	err = servicestate.CreateQuota(s.state, "foo", "", []string{"test-snap"}, quantity.SizeGiB)
@@ -649,21 +651,21 @@ func (s *quotaControlSuite) TestUpdateQuotaAddSnap(c *C) {
 }
 
 func (s *quotaControlSuite) TestUpdateQuotaReplaceSnap(c *C) {
-	r := s.mockSystemctlCalls(c, []expectedSystemctl{
-		{
-			// called for new slice unit written by CreateQuota after we create
-			// the snap in state
-			expArgs: []string{"daemon-reload"},
-		},
-		{
-			// called by UpdateQuota
-			expArgs: []string{"daemon-reload"},
-		},
-	})
+	r := s.mockSystemctlCalls(c, join(
+		// CreateQuota for foo with test-snap
+		systemctlCallsForCreateQuota("foo", "test-snap"),
+
+		// UpdateQuota for foo with test-snap removed and test-snap2 added
+		systemctlCallsVersion(248),
+		[]expectedSystemctl{{expArgs: []string{"daemon-reload"}}},
+		systemctlCallsForServiceRestart("test-snap2"),
+		systemctlCallsForServiceRestart("test-snap"),
+	))
 	defer r()
 
 	st := s.state
 	st.Lock()
+	defer st.Unlock()
 	// setup test-snap
 	snapstate.Set(s.state, "test-snap", s.testSnapState)
 	snaptest.MockSnapCurrent(c, testYaml, s.testSnapSideInfo)
@@ -677,7 +679,6 @@ func (s *quotaControlSuite) TestUpdateQuotaReplaceSnap(c *C) {
 	}
 	snapstate.Set(s.state, "test-snap2", snapst2)
 	snaptest.MockSnapCurrent(c, testYaml2, si2)
-	st.Unlock()
 
 	// create a quota group
 	err := servicestate.CreateQuota(s.state, "foo", "", []string{"test-snap"}, quantity.SizeGiB)
@@ -691,6 +692,60 @@ func (s *quotaControlSuite) TestUpdateQuotaReplaceSnap(c *C) {
 	})
 
 	// replace the existing snap with another one
+	opts := servicestate.QuotaGroupUpdate{AddSnaps: []string{"test-snap2"}, ReplaceSnaps: true}
+	err = servicestate.UpdateQuota(s.state, "foo", opts)
+	c.Assert(err, IsNil)
+
+	// and check that it got updated in the state
+	checkQuotaState(c, st, map[string]quotaGroupState{
+		"foo": {
+			MemoryLimit: quantity.SizeGiB,
+			Snaps:       []string{"test-snap2"},
+		},
+	})
+}
+
+func (s *quotaControlSuite) TestUpdateQuotaReplaceSnapSubset(c *C) {
+	r := s.mockSystemctlCalls(c, join(
+		// CreateQuota for foo with test-snap
+		systemctlCallsForCreateQuota("foo", "test-snap", "test-snap2"),
+
+		// UpdateQuota for foo with test-snap removed and test-snap2 added
+		systemctlCallsVersion(248),
+		[]expectedSystemctl{{expArgs: []string{"daemon-reload"}}},
+		systemctlCallsForServiceRestart("test-snap"),
+	))
+	defer r()
+
+	st := s.state
+	st.Lock()
+	defer st.Unlock()
+	// setup test-snap
+	snapstate.Set(s.state, "test-snap", s.testSnapState)
+	snaptest.MockSnapCurrent(c, testYaml, s.testSnapSideInfo)
+	// and test-snap2
+	si2 := &snap.SideInfo{RealName: "test-snap2", Revision: snap.R(42)}
+	snapst2 := &snapstate.SnapState{
+		Sequence: []*snap.SideInfo{si2},
+		Current:  si2.Revision,
+		Active:   true,
+		SnapType: "app",
+	}
+	snapstate.Set(s.state, "test-snap2", snapst2)
+	snaptest.MockSnapCurrent(c, testYaml2, si2)
+
+	// create a quota group
+	err := servicestate.CreateQuota(s.state, "foo", "", []string{"test-snap", "test-snap2"}, quantity.SizeGiB)
+	c.Assert(err, IsNil)
+
+	checkQuotaState(c, st, map[string]quotaGroupState{
+		"foo": {
+			MemoryLimit: quantity.SizeGiB,
+			Snaps:       []string{"test-snap", "test-snap2"},
+		},
+	})
+
+	// replace the existing set of snaps with a subset
 	opts := servicestate.QuotaGroupUpdate{AddSnaps: []string{"test-snap2"}, ReplaceSnaps: true}
 	err = servicestate.UpdateQuota(s.state, "foo", opts)
 	c.Assert(err, IsNil)
@@ -766,7 +821,7 @@ func (s *quotaControlSuite) TestUpdateQuotaAddSnapAlreadyInOtherGroup(c *C) {
 	err = servicestate.UpdateQuota(st, "foo", servicestate.QuotaGroupUpdate{
 		AddSnaps: []string{"test-snap2"},
 	})
-	c.Assert(err, ErrorMatches, `cannot add snap "test-snap2" to group "foo": snap already in quota group "foo2"`)
+	c.Assert(err, ErrorMatches, `cannot update quota with snaps "test-snap2": snap already in quota group "foo2"`)
 
 	// nothing changed in the state
 	checkQuotaState(c, st, map[string]quotaGroupState{
