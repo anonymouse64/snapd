@@ -111,6 +111,27 @@ func (grp *Group) CurrentMemoryUsage() (quantity.Size, error) {
 	return mem, nil
 }
 
+func (grp *Group) CurrentTaskCount() (uint64, error) {
+	sysd := systemd.New(systemd.SystemMode, progress.Null)
+
+	// check if this group is actually active, it could not physically exist yet
+	// since it has no snaps in it
+	isActive, err := sysd.IsActive(grp.SliceFileName())
+	if err != nil {
+		return 0, err
+	}
+	if !isActive {
+		return 0, nil
+	}
+
+	tasks, err := sysd.CurrentTasksCount(grp.SliceFileName())
+	if err != nil {
+		return 0, err
+	}
+
+	return tasks, nil
+}
+
 // SliceFileName returns the name of the slice file that should be used for this
 // quota group. This name will include all of the group's parents in the name.
 // For example, a group named "bar" that is a child of the "foo" group will have

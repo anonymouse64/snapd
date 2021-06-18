@@ -21,6 +21,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -96,6 +97,11 @@ func getQuotaGroups(c *Command, r *http.Request, _ *auth.UserState) Response {
 			return InternalError(err.Error())
 		}
 
+		taskCount, err := group.CurrentTaskCount()
+		if err != nil {
+			return InternalError(err.Error())
+		}
+
 		results[i] = client.QuotaGroupResult{
 			GroupName: group.Name,
 			Parent:    group.ParentGroup,
@@ -106,6 +112,7 @@ func getQuotaGroups(c *Command, r *http.Request, _ *auth.UserState) Response {
 			},
 			Current: map[string]string{
 				"memory": memoryUsage.String(),
+				"tasks":  fmt.Sprintf("%d", taskCount),
 			},
 		}
 	}
@@ -137,6 +144,11 @@ func getQuotaGroupInfo(c *Command, r *http.Request, _ *auth.UserState) Response 
 		return InternalError(err.Error())
 	}
 
+	taskCount, err := group.CurrentTaskCount()
+	if err != nil {
+		return InternalError(err.Error())
+	}
+
 	res := client.QuotaGroupResult{
 		GroupName: group.Name,
 		Parent:    group.ParentGroup,
@@ -147,6 +159,7 @@ func getQuotaGroupInfo(c *Command, r *http.Request, _ *auth.UserState) Response 
 		},
 		Current: map[string]string{
 			"memory": memoryUsage.String(),
+			"tasks":  fmt.Sprintf("%d", taskCount),
 		},
 	}
 	return SyncResponse(res)
