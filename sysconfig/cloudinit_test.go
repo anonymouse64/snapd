@@ -53,19 +53,25 @@ func (s *sysconfigSuite) SetUpTest(c *C) {
 	s.AddCleanup(func() { dirs.SetRootDir("/") })
 }
 
-func (s *sysconfigSuite) makeCloudCfgSrcDirFiles(c *C) string {
+func (s *sysconfigSuite) makeCloudCfgSrcDirFiles(c *C, cfgs ...string) (string, []string) {
 	cloudCfgSrcDir := c.MkDir()
-	for _, mockCfg := range []string{"foo.cfg", "bar.cfg"} {
-		err := ioutil.WriteFile(filepath.Join(cloudCfgSrcDir, mockCfg), []byte(fmt.Sprintf("%s config", mockCfg)), 0644)
+	names := make([]string, 0, len(cfgs))
+	for i, mockCfg := range cfgs {
+		configFileName := fmt.Sprintf("seed-config-%d.cfg", i)
+		err := ioutil.WriteFile(filepath.Join(cloudCfgSrcDir, configFileName), []byte(mockCfg), 0644)
 		c.Assert(err, IsNil)
+		names = append(names, configFileName)
 	}
-	return cloudCfgSrcDir
+	return cloudCfgSrcDir, names
 }
 
-func (s *sysconfigSuite) makeGadgetCloudConfFile(c *C) string {
+func (s *sysconfigSuite) makeGadgetCloudConfFile(c *C, content string) string {
 	gadgetDir := c.MkDir()
 	gadgetCloudConf := filepath.Join(gadgetDir, "cloud.conf")
-	err := ioutil.WriteFile(gadgetCloudConf, []byte("gadget cloud config"), 0644)
+	if content == "" {
+		content = "#cloud-config some gadget cloud config"
+	}
+	err := ioutil.WriteFile(gadgetCloudConf, []byte(content), 0644)
 	c.Assert(err, IsNil)
 
 	return gadgetDir
@@ -109,8 +115,8 @@ func (s *sysconfigSuite) TestInstallModeCloudInitDisablesByDefaultRunMode(c *C) 
 }
 
 func (s *sysconfigSuite) TestInstallModeCloudInitDisallowedIgnoresOtherOptions(c *C) {
-	cloudCfgSrcDir := s.makeCloudCfgSrcDirFiles(c)
-	gadgetDir := s.makeGadgetCloudConfFile(c)
+	cloudCfgSrcDir, _ := s.makeCloudCfgSrcDirFiles(c)
+	gadgetDir := s.makeGadgetCloudConfFile(c, "")
 
 	err := sysconfig.ConfigureTargetSystem(fake20Model("signed"), &sysconfig.Options{
 		AllowCloudInit:  false,
@@ -143,8 +149,9 @@ func (s *sysconfigSuite) TestInstallModeCloudInitAllowedGradeSignedDoesNotDisabl
 	c.Check(ubuntuDataCloudDisabled, testutil.FileAbsent)
 }
 
-func (s *sysconfigSuite) TestInstallModeCloudInitAllowedGradeSignedDoesNotInstallUbuntuSeedConfig(c *C) {
-	cloudCfgSrcDir := s.makeCloudCfgSrcDirFiles(c)
+func (s *sysconfigSuite) TestInstallModeCloudInitAllowedGradeSignedDoesNotInstallNoCloudUbuntuSeedConfig(c *C) {
+	cloudCfgSrcDir, names := s.makeCloudCfgSrcDirFiles(c, nocloudCfg1)
+	nocloudCfgFileName := names[0]
 
 	err := sysconfig.ConfigureTargetSystem(fake20Model("signed"), &sysconfig.Options{
 		AllowCloudInit:  true,
@@ -154,8 +161,35 @@ func (s *sysconfigSuite) TestInstallModeCloudInitAllowedGradeSignedDoesNotInstal
 	c.Assert(err, IsNil)
 
 	ubuntuDataCloudCfg := filepath.Join(boot.InstallHostWritableDir, "_writable_defaults/etc/cloud/cloud.cfg.d/")
-	c.Check(filepath.Join(ubuntuDataCloudCfg, "foo.cfg"), testutil.FileAbsent)
-	c.Check(filepath.Join(ubuntuDataCloudCfg, "bar.cfg"), testutil.FileAbsent)
+	c.Check(filepath.Join(ubuntuDataCloudCfg, nocloudCfgFileName), testutil.FileAbsent)
+}
+
+func (s *sysconfigSuite) TestInstallModeCloudInitAllowedGradeSignedDoesInstallMAASUbuntuSeedConfig(c *C) {
+	maasCfgs := []string{
+		maasCfg1,
+		maasCfg2,
+		maasCfg3, // the only one that doesn't get installed because it uses the "snappy" key which we don't support
+		maasCfg4,
+		maasCfg5,
+	}
+	cloudCfgSrcDir, names := s.makeCloudCfgSrcDirFiles(c, maasCfgs...)
+
+	err := sysconfig.ConfigureTargetSystem(fake20Model("signed"), &sysconfig.Options{
+		AllowCloudInit:  true,
+		TargetRootDir:   boot.InstallHostWritableDir,
+		CloudInitSrcDir: cloudCfgSrcDir,
+	})
+	c.Assert(err, IsNil)
+
+	ubuntuDataCloudCfg := filepath.Join(boot.InstallHostWritableDir, "_writable_defaults/etc/cloud/cloud.cfg.d/")
+	for i, name := range names {
+		if i == 2 {
+			// the "snappy" file
+			c.Check(filepath.Join(ubuntuDataCloudCfg, "90_"+name), testutil.FileAbsent)
+		} else {
+			c.Check(filepath.Join(ubuntuDataCloudCfg, "90_"+name), testutil.FilePresent)
+		}
+	}
 }
 
 func (s *sysconfigSuite) TestInstallModeCloudInitAllowedGradeDangerousDoesNotDisable(c *C) {
@@ -181,7 +215,7 @@ func (s *sysconfigSuite) TestInstallModeCloudInitDisallowedGradeSecuredDoesDisab
 }
 
 func (s *sysconfigSuite) TestInstallModeCloudInitAllowedGradeSecuredIgnoresSrcButDoesNotDisable(c *C) {
-	cloudCfgSrcDir := s.makeCloudCfgSrcDirFiles(c)
+	cloudCfgSrcDir, _ := s.makeCloudCfgSrcDirFiles(c)
 
 	err := sysconfig.ConfigureTargetSystem(fake20Model("secured"), &sysconfig.Options{
 		AllowCloudInit:  true,
@@ -206,7 +240,7 @@ func (s *sysconfigSuite) TestInstallModeCloudInitAllowedGradeSecuredIgnoresSrcBu
 // writable, but rather the host writable partition that will be used upon
 // reboot into run mode
 func (s *sysconfigSuite) TestInstallModeCloudInitInstallsOntoHostRunMode(c *C) {
-	cloudCfgSrcDir := s.makeCloudCfgSrcDirFiles(c)
+	cloudCfgSrcDir, _ := s.makeCloudCfgSrcDirFiles(c)
 
 	err := sysconfig.ConfigureTargetSystem(fake20Model("dangerous"), &sysconfig.Options{
 		AllowCloudInit:  true,
@@ -222,7 +256,7 @@ func (s *sysconfigSuite) TestInstallModeCloudInitInstallsOntoHostRunMode(c *C) {
 }
 
 func (s *sysconfigSuite) TestInstallModeCloudInitInstallsOntoHostRunModeWithGadgetCloudConf(c *C) {
-	gadgetDir := s.makeGadgetCloudConfFile(c)
+	gadgetDir := s.makeGadgetCloudConfFile(c, "")
 	err := sysconfig.ConfigureTargetSystem(fake20Model("secured"), &sysconfig.Options{
 		AllowCloudInit: true,
 		GadgetDir:      gadgetDir,
@@ -232,12 +266,12 @@ func (s *sysconfigSuite) TestInstallModeCloudInitInstallsOntoHostRunModeWithGadg
 
 	// and did copy the gadget cloud-init file
 	ubuntuDataCloudCfg := filepath.Join(boot.InstallHostWritableDir, "_writable_defaults/etc/cloud/cloud.cfg.d/")
-	c.Check(filepath.Join(ubuntuDataCloudCfg, "80_device_gadget.cfg"), testutil.FileEquals, "gadget cloud config")
+	c.Check(filepath.Join(ubuntuDataCloudCfg, "80_device_gadget.cfg"), testutil.FileEquals, "#cloud-config some gadget cloud config")
 }
 
 func (s *sysconfigSuite) TestInstallModeCloudInitInstallsOntoHostRunModeWithGadgetCloudConfAlsoInstallsUbuntuSeedConfig(c *C) {
-	cloudCfgSrcDir := s.makeCloudCfgSrcDirFiles(c)
-	gadgetDir := s.makeGadgetCloudConfFile(c)
+	cloudCfgSrcDir, _ := s.makeCloudCfgSrcDirFiles(c)
+	gadgetDir := s.makeGadgetCloudConfFile(c, "")
 
 	err := sysconfig.ConfigureTargetSystem(fake20Model("dangerous"), &sysconfig.Options{
 		AllowCloudInit:  true,
@@ -249,7 +283,7 @@ func (s *sysconfigSuite) TestInstallModeCloudInitInstallsOntoHostRunModeWithGadg
 
 	// we did copy the gadget cloud-init file
 	ubuntuDataCloudCfg := filepath.Join(boot.InstallHostWritableDir, "_writable_defaults/etc/cloud/cloud.cfg.d/")
-	c.Check(filepath.Join(ubuntuDataCloudCfg, "80_device_gadget.cfg"), testutil.FileEquals, "gadget cloud config")
+	c.Check(filepath.Join(ubuntuDataCloudCfg, "80_device_gadget.cfg"), testutil.FileEquals, "#cloud-config some gadget cloud config")
 
 	// and we also copied the ubuntu-seed files with a new prefix such that they
 	// take precedence over the gadget file by being ordered lexically after the
@@ -655,3 +689,159 @@ func (s *sysconfigSuite) TestRestrictCloudInit(c *C) {
 		}
 	}
 }
+
+const maasCfg1 = `#cloud-config
+reporting:
+  maas:
+    consumer_key: foothefoo
+    endpoint: http://172-16-99-0--24.maas-internal:5248/MAAS/metadata/status/foo
+    token_key: foothefoothesecond
+    token_secret: foothesecretfoo
+    type: webhook
+`
+
+const maasCfg2 = `datasource_list: [ MAAS ]
+`
+
+const maasCfg3 = `#cloud-config
+snappy:
+  email: foo@foothewebsite.com
+`
+
+const maasCfg4 = `#cloud-config
+network:
+  config:
+  - id: enp3s0
+    mac_address: 52:54:00:b4:9e:25
+    mtu: 1500
+    name: enp3s0
+    subnets:
+    - address: 172.16.99.7/24
+      dns_nameservers:
+      - 172.16.99.1
+      dns_search:
+      - maas
+      type: static
+    type: physical
+  - address: 172.16.99.1
+    search:
+    - maas
+    type: nameserver
+  version: 1
+`
+
+const maasCfg5 = `#cloud-config
+datasource:
+  MAAS:
+    consumer_key: foothefoo
+    metadata_url: http://172-16-99-0--24.maas-internal:5248/MAAS/metadata/
+    token_key: foothefoothesecond
+    token_secret: foothesecretfoo
+`
+
+const nocloudCfg1 = `#cloud-config
+datasource_list:
+- NoCloud
+users:
+- lock_passwd: false
+  name: ubuntu
+  plain_text_passwd: ubuntu
+  ssh_authorized_keys:
+  - ssh-rsa some-hash foo@foothewebsite.com
+  sudo: ALL=(ALL) NOPASSWD:ALL
+`
+
+// TODO: we might be able to get rid of support for this sort of config, check
+// with cert team after they have tested the above version
+const nocloudCfg2 = `#cloud-config
+datasource:
+  NoCloud:
+    meta-data: |
+      #cloud-config
+      instance_id: cloud-image
+    user-data: |
+      #cloud-config
+      chpasswd:
+        expire: false
+        list:
+        - ubuntu:ubuntu
+      ssh_pwauth: true
+datasource_list:
+- NoCloud
+- None
+`
+
+// func (s *sysconfigSuite) TestFilterCloudCfgFile(c *C) {
+// 	tt := []struct {
+// 		comment string
+// 		inStr   string
+// 		outStr  string
+// 		err     string
+// 	}{
+// 		{
+// 			comment: "maas reporting cloud-init config",
+// 			inStr:   maasCfg1,
+// 			outStr:  maasCfg1,
+// 		},
+// 		{
+// 			comment: "maas datasource list cloud-init config",
+// 			inStr:   maasCfg2,
+// 			outStr: `#cloud-config
+// datasource_list:
+// - MAAS
+// `,
+// 		},
+// 		{
+// 			comment: "maas snappy user cloud-init config",
+// 			inStr:   maasCfg3,
+// 			// we don't support using the snappy key
+// 			outStr: "",
+// 		},
+// 		{
+// 			comment: "maas networking cloud-init config",
+// 			inStr:   maasCfg4,
+// 			outStr:  maasCfg4,
+// 		},
+// 		{
+// 			comment: "maas datasource cloud-init config",
+// 			inStr:   maasCfg5,
+// 			outStr:  maasCfg5,
+// 		},
+// 		{
+// 			comment: "basic nocloud users key cloud-init config",
+// 			inStr:   nocloudCfg1,
+// 			outStr:  nocloudCfg1,
+// 		},
+// 		{
+// 			comment: "embedded nocloud user-data datasource cloud-init config",
+// 			inStr:   nocloudCfg2,
+// 			outStr:  nocloudCfg2,
+// 		},
+// 	}
+
+// 	dir := c.MkDir()
+// 	for i, t := range tt {
+// 		comment := Commentf(t.comment)
+// 		inFile := filepath.Join(dir, fmt.Sprintf("%d.cfg", i))
+// 		err := ioutil.WriteFile(inFile, []byte(t.inStr), 0755)
+// 		c.Assert(err, IsNil, comment)
+
+// 		out, err := sysconfig.FilterCloudCfgFile(inFile, []string{"MAAS"})
+// 		if t.err != "" {
+// 			c.Assert(err, ErrorMatches, t.err, comment)
+// 			continue
+// 		}
+// 		c.Assert(err, IsNil, comment)
+
+// 		// no expected output means that everything was filtered out
+// 		if t.outStr == "" {
+// 			c.Assert(out, Equals, "", comment)
+// 			continue
+// 		}
+
+// 		// otherwise we have expected output in the file
+// 		b, err := ioutil.ReadFile(out)
+// 		c.Assert(err, IsNil, comment)
+// 		c.Assert(string(b), Equals, t.outStr, comment)
+// 	}
+// }
