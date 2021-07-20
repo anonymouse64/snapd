@@ -27,6 +27,7 @@ import (
 
 	"github.com/snapcore/snapd/asserts"
 	"github.com/snapcore/snapd/asserts/sysdb"
+	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/overlord/auth"
 	"github.com/snapcore/snapd/overlord/configstate/config"
 	"github.com/snapcore/snapd/overlord/state"
@@ -260,6 +261,16 @@ func (sc *storeContext) CloudInfo() (*auth.CloudInfo, error) {
 
 	if cloudInfo.Name != "" {
 		return &cloudInfo, nil
+	}
+
+	// check env if special store vars are set and we didn't already
+	// have cloud info from the state
+	if osutil.GetenvBool("SNAPPY_STORE_CLOUD_NAME") {
+		return &auth.CloudInfo{
+			Name:             os.Getenv("SNAPPY_STORE_CLOUD_NAME"),
+			Region:           os.Getenv("SNAPPY_STORE_CLOUD_REGION"),
+			AvailabilityZone: os.Getenv("SNAPPY_STORE_CLOUD_AVAILABILITY_ZONE"),
+		}, nil
 	}
 
 	return nil, nil
